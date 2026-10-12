@@ -30,11 +30,19 @@ This repository provides a complete, production-verified reference implementatio
 
 ## 2. End-to-End Dataflow Diagram
 
+### 2.1 High-DPI Vector Dataflow Diagram (`assets/diagrams/line_bqca_data_flow.png`)
+
+![End-to-End Hybrid Partner & Stateless STS Dataflow Diagram](assets/diagrams/line_bqca_data_flow.png)
+
+### 2.2 10-Step Sequence & Wire Transformation (`assets/diagrams/slide_8_end_to_end_dataflow_diagram.png`)
+
 ![End-to-End Hybrid Dataflow](assets/diagrams/slide_8_end_to_end_dataflow_diagram.png)
 
 ---
 
 ## 3. Multi-Tenant BigQuery RLS Scaling Blueprint (`< 50` to `10,000+` Partners)
+
+![Enterprise Multi-Tenant RLS Scaling Dataflow](assets/diagrams/rls_scaling_10k_dataflow.png)
 
 ![BigQuery Native RLS v2.3](assets/diagrams/slide_10_bq_native_rls_v23.png)
 

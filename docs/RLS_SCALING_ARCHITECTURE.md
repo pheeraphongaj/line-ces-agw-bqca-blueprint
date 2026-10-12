@@ -28,6 +28,8 @@ The following layers in this blueprint **already scale horizontally to 100,000+ 
 
 ## 3. Production Scaling Patterns for the BigQuery RLS Layer (`1,000 – 1,000,000+` Partners)
 
+![Enterprise Multi-Tenant RLS Scaling Dataflow](../assets/diagrams/rls_scaling_10k_dataflow.png)
+
 ![Multi-Tenant RLS Scaling Blueprint](../assets/diagrams/slide_11_bq_rls_scaling_10k.png)
 
 ### Approach 3 (Recommended Enterprise Standard): Workforce Identity Federation (WIF) + 1 Dynamic Lookup `ROW ACCESS POLICY`

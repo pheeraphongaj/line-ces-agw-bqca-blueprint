@@ -1,0 +1,73 @@
+{
+  "title": "Enterprise Multi-Tenant RLS Scaling Dataflow: From <50 PoC to 10,000+ External Partners",
+  "subtitle": "Overcoming BigQuery's 100-Policy/Table & Cloud IAM's 1,000-SA Quotas via Workforce Identity Federation (WIF) + 1 Dynamic Lookup Policy",
+  "rows": [
+    {
+      "columns": [
+        {
+          "label": "1. 10,000+ PARTNER AUTH (LINE & CIP)",
+          "color": "orange",
+          "nodes": [
+            { "text": "10,000+ External Retail Partners", "note": "Store Managers & Franchisees on LINE OA", "color": "orange", "core": true },
+            { "text": "Partner CIP / OIDC Login", "note": "Authenticates via Google Identity Platform (CIP)", "color": "orange", "core": true },
+            { "text": "Firestore Entitlements Cache", "note": "line_partner_registry/{uid} (<5ms point lookup)", "color": "orange" }
+          ]
+        },
+        {
+          "label": "2. STATELESS WIF STS EXCHANGE",
+          "color": "blue",
+          "nodes": [
+            { "text": "GEAP AGW Service Extension", "note": "Verifies status == ACTIVE in Firestore", "color": "blue", "core": true },
+            { "text": "Workforce Identity Federation (WIF)", "note": "sts.googleapis.com exchanges OIDC JWT in RAM", "color": "blue", "core": true },
+            { "text": "0 Partner Service Accounts!", "note": "Eliminates 1,000 SA/project IAM quota bottleneck", "color": "blue", "core": true }
+          ]
+        },
+        {
+          "label": "3. BQCA & DYNAMIC SUBQUERY RLS",
+          "color": "purple",
+          "nodes": [
+            { "text": "BQCA Regional :chat API", "note": "Called with Partner's WIF Bearer Token", "color": "purple", "core": true },
+            { "text": "BigQuery SESSION_USER()", "note": "Resolves to partner.polk@iowa-beverage.com", "color": "purple", "core": true },
+            { "text": "Only 2 Policies on Fact Table!", "note": "1. rls_internal_all_access · 2. rls_dynamic_lookup", "color": "purple", "core": true }
+          ]
+        },
+        {
+          "label": "4. ENTITLEMENTS JOIN & STORAGE FILTER",
+          "color": "green",
+          "nodes": [
+            { "text": "rls_partner_entitlements Table", "note": "Clustered by (partner_principal, status, store)", "color": "green", "core": true },
+            { "text": "EXISTS (...) Subquery Predicate", "note": "Matches SESSION_USER() ↔ allowed_store_number", "color": "green", "core": true },
+            { "text": "Zero-DDL Partner Onboarding", "note": "Partner #10,001 = 1 SQL INSERT row (0 DDL edits!)", "color": "green", "core": true }
+          ]
+        }
+      ],
+      "arrows": [
+        { "from": 0, "to": 1, "label": "Partner JWT\n+ x-line-user-id", "dir": "right" },
+        { "from": 1, "to": 2, "label": "WIF STS Token\n(RAM Only)", "dir": "right" },
+        { "from": 2, "to": 3, "label": "SESSION_USER()\nSubquery Join", "dir": "both" }
+      ]
+    },
+    {
+      "columns": [
+        {
+          "bare": true,
+          "nodes": [
+            { "text": "Approach 1 (<50 Partners PoC): Per-Partner SA", "note": "1 Partner = 1 Service Account + 1 Static ROW ACCESS POLICY.\nSimple for PoC, but hits BigQuery 100-policy limit at Partner #101.", "color": "blue", "core": true }
+          ]
+        },
+        {
+          "bare": true,
+          "nodes": [
+            { "text": "Approach 3 (1,000–1,000,000+ Recommended): WIF + 1 Lookup Policy", "note": "0 Partner SAs + 1 Dynamic Subquery ROW ACCESS POLICY joining rls_partner_entitlements.\nScales to millions of partners with 1 SQL INSERT per new partner.", "color": "green", "core": true }
+          ]
+        },
+        {
+          "bare": true,
+          "nodes": [
+            { "text": "Approach 4 (No-WIF Alternative): Single SA + Authorized TVF", "note": "When running 1 shared Service Account without WIF: FastMCP rewrites SQL AST (sqlglot)\nor queries Authorized TVF sales_for_partner(@verified_partner_id).", "color": "purple", "core": true }
+          ]
+        }
+      ]
+    }
+  ]
+}

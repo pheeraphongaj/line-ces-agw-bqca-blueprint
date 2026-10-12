@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1840" height="851" viewBox="0 0 1840 851" font-family="'Noto Sans CJK JP','Noto Sans JP','Roboto','Arial',sans-serif">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5F6368"/></marker></defs>
+<rect width="1840" height="851" fill="#FFFFFF"/>
+<text x="48" y="74" font-size="26" font-weight="700" fill="#202124">End-to-End Dataflow: LINE OA → Hybrid Auth &amp; Firestore → CES → GEAP AGW (Stateless STS) → BQCA &amp; BigQuery RLS</text>
+<text x="48" y="100" font-size="14" fill="#5F6368">Phase A: Hybrid Onboarding (Partner CIP vs Internal IAP)  |  Phase B: Zero-Token LLM, Stateless RAM STS &amp; Store-Level Native RLS</text>
+<rect x="87.4" y="124.0" width="312.5" height="283.0" rx="16" fill="none" stroke="#F9AB00" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="105.4" y="151.0" font-size="14" font-weight="700" fill="#F9AB00">PHASE A1. LINE 1-CARD LOGIN GATE</text>
+<rect x="105.4" y="166.0" width="276.5" height="65.0" rx="11" fill="#FEF7E0" stroke="#F9AB00" stroke-width="2.5"/>
+<text x="243.7" y="193.0" font-size="14" font-weight="700" fill="#B06000" text-anchor="middle">Default 1-Card Rich Menu</text>
+<text x="243.7" y="213.0" font-size="11.5" fill="#B06000" fill-opacity="0.85" text-anchor="middle">Shown to all unauthenticated LINE users</text>
+<rect x="105.4" y="245.0" width="276.5" height="65.0" rx="11" fill="#FEF7E0" stroke="#F9AB00" stroke-width="2"/>
+<text x="243.7" y="272.0" font-size="14" font-weight="700" fill="#B06000" text-anchor="middle">Tap Login Button (&#x27;เข้าสู่ระบบ&#x27;)</text>
+<text x="243.7" y="292.0" font-size="11.5" fill="#B06000" fill-opacity="0.85" text-anchor="middle">Sends message event to POST /line/webhook</text>
+<rect x="105.4" y="324.0" width="276.5" height="65.0" rx="11" fill="#FEF7E0" stroke="#F9AB00" stroke-width="2.5"/>
+<text x="243.7" y="351.0" font-size="14" font-weight="700" fill="#B06000" text-anchor="middle">HMAC-SHA256 Signed State</text>
+<text x="243.7" y="371.0" font-size="11.5" fill="#B06000" fill-opacity="0.85" text-anchor="middle">Captures source.userId · Signs uid:exp</text>
+<rect x="509.9" y="124.0" width="347.4" height="283.0" rx="16" fill="none" stroke="#1A73E8" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="527.9" y="151.0" font-size="14" font-weight="700" fill="#1A73E8">PHASE A2. DUAL IDENTITY GATE</text>
+<rect x="527.9" y="166.0" width="311.4" height="65.0" rx="11" fill="#E8F0FE" stroke="#1A73E8" stroke-width="2.5"/>
+<text x="683.7" y="193.0" font-size="14" font-weight="700" fill="#1A73E8" text-anchor="middle">External B2B Partner Portal</text>
+<text x="683.7" y="213.0" font-size="11.5" fill="#1A73E8" fill-opacity="0.85" text-anchor="middle">/auth/portal (Partner CIP · No GCP IAM needed)</text>
+<rect x="527.9" y="245.0" width="311.4" height="65.0" rx="11" fill="#E8F0FE" stroke="#1A73E8" stroke-width="2.5"/>
+<text x="683.7" y="272.0" font-size="14" font-weight="700" fill="#1A73E8" text-anchor="middle">Internal Employee SSO Gate</text>
+<text x="683.7" y="292.0" font-size="11.5" fill="#1A73E8" fill-opacity="0.85" text-anchor="middle">/auth/login behind Cloud IAP (ES256 JWT)</text>
+<rect x="527.9" y="324.0" width="311.4" height="65.0" rx="11" fill="#E8F0FE" stroke="#1A73E8" stroke-width="2"/>
+<text x="683.7" y="351.0" font-size="14" font-weight="700" fill="#1A73E8" text-anchor="middle">External Browser Enforcement</text>
+<text x="683.7" y="371.0" font-size="11.5" fill="#1A73E8" fill-opacity="0.85" text-anchor="middle">?openExternalBrowser=1 (Bypasses WebView 403)</text>
+<rect x="967.4" y="124.0" width="337.7" height="283.0" rx="16" fill="none" stroke="#1E8E3E" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="985.4" y="151.0" font-size="14" font-weight="700" fill="#1E8E3E">PHASE A3. FIRESTORE REGISTRY</text>
+<rect x="985.4" y="166.0" width="301.7" height="65.0" rx="11" fill="#E6F4EA" stroke="#1E8E3E" stroke-width="2.5"/>
+<text x="1136.2" y="193.0" font-size="14" font-weight="700" fill="#137333" text-anchor="middle">line_partner_accounts</text>
+<text x="1136.2" y="213.0" font-size="11.5" fill="#137333" fill-opacity="0.85" text-anchor="middle">Partner Tier · Allowed Store/County · Target SA</text>
+<rect x="985.4" y="245.0" width="301.7" height="65.0" rx="11" fill="#E6F4EA" stroke="#1E8E3E" stroke-width="2.5"/>
+<text x="1136.2" y="272.0" font-size="14" font-weight="700" fill="#137333" text-anchor="middle">line_partner_registry/{uid}</text>
+<text x="1136.2" y="292.0" font-size="11.5" fill="#137333" fill-opacity="0.85" text-anchor="middle">Binds line_user_id ↔ partner_id &amp; status=ACTIVE</text>
+<rect x="985.4" y="324.0" width="301.7" height="65.0" rx="11" fill="#E6F4EA" stroke="#1E8E3E" stroke-width="2"/>
+<text x="1136.2" y="351.0" font-size="14" font-weight="700" fill="#137333" text-anchor="middle">Zero Stored OAuth Tokens!</text>
+<text x="1136.2" y="371.0" font-size="11.5" fill="#137333" fill-opacity="0.85" text-anchor="middle">No raw/encrypted ya29... tokens on gs:// bucket</text>
+<rect x="1415.1" y="124.0" width="337.8" height="283.0" rx="16" fill="none" stroke="#9334E6" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="1433.1" y="151.0" font-size="14" font-weight="700" fill="#9334E6">PHASE A4. 6-CARD MENU UNLOCK</text>
+<rect x="1433.1" y="166.0" width="301.8" height="65.0" rx="11" fill="#F3E8FD" stroke="#9334E6" stroke-width="2.5"/>
+<text x="1584.0" y="193.0" font-size="14" font-weight="700" fill="#8430CE" text-anchor="middle">Per-User Rich Menu Link API</text>
+<text x="1584.0" y="213.0" font-size="11.5" fill="#8430CE" fill-opacity="0.85" text-anchor="middle">POST /v2/bot/user/{uid}/richmenu/{6card_id}</text>
+<rect x="1433.1" y="245.0" width="301.8" height="65.0" rx="11" fill="#F3E8FD" stroke="#9334E6" stroke-width="2.5"/>
+<text x="1584.0" y="272.0" font-size="14" font-weight="700" fill="#8430CE" text-anchor="middle">6-Card Analytics Rich Menu</text>
+<text x="1584.0" y="292.0" font-size="11.5" fill="#8430CE" fill-opacity="0.85" text-anchor="middle">Instantly swaps user&#x27;s LINE screen (1 → 6 Cards)</text>
+<rect x="1433.1" y="324.0" width="301.8" height="65.0" rx="11" fill="#F3E8FD" stroke="#9334E6" stroke-width="2"/>
+<text x="1584.0" y="351.0" font-size="14" font-weight="700" fill="#8430CE" text-anchor="middle">Partner Badge Flex Push</text>
+<text x="1584.0" y="371.0" font-size="11.5" fill="#8430CE" fill-opacity="0.85" text-anchor="middle">Confirms active RLS scope (e.g. Store #2633)</text>
+<line x1="413.9" y1="265.5" x2="495.9" y2="265.5" stroke="#5F6368" stroke-width="2" marker-end="url(#ah)"/>
+<text x="454.9" y="240.5" font-size="12.5" fill="#5F6368" text-anchor="middle">Signed Auth URL</text>
+<text x="454.9" y="254.5" font-size="12.5" fill="#5F6368" text-anchor="middle">(Ext Browser)</text>
+<line x1="871.4" y1="265.5" x2="953.4" y2="265.5" stroke="#5F6368" stroke-width="2" marker-end="url(#ah)"/>
+<text x="912.4" y="240.5" font-size="12.5" fill="#5F6368" text-anchor="middle">Verify CIP / IAP</text>
+<text x="912.4" y="254.5" font-size="12.5" fill="#5F6368" text-anchor="middle">&amp; Save Metadata</text>
+<line x1="1319.1" y1="265.5" x2="1401.1" y2="265.5" stroke="#5F6368" stroke-width="2" marker-end="url(#ah)"/>
+<text x="1360.1" y="240.5" font-size="12.5" fill="#5F6368" text-anchor="middle">Bind ACTIVE</text>
+<text x="1360.1" y="254.5" font-size="12.5" fill="#5F6368" text-anchor="middle">&amp; Unlock 6-Card</text>
+<rect x="48.0" y="441.0" width="347.1" height="362.0" rx="16" fill="none" stroke="#F9AB00" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="66.0" y="468.0" font-size="14" font-weight="700" fill="#F9AB00">PHASE B1. WEBHOOK &amp; 22S GUARD</text>
+<rect x="66.0" y="483.0" width="311.1" height="65.0" rx="11" fill="#FEF7E0" stroke="#F9AB00" stroke-width="2.5"/>
+<text x="221.6" y="510.0" font-size="14" font-weight="700" fill="#B06000" text-anchor="middle">6-Card Tap / Analytics Query</text>
+<text x="221.6" y="530.0" font-size="11.5" fill="#B06000" fill-opacity="0.85" text-anchor="middle">POST /line/webhook (Verifies X-Line-Signature)</text>
+<rect x="66.0" y="562.0" width="311.1" height="65.0" rx="11" fill="#FEF7E0" stroke="#F9AB00" stroke-width="2"/>
+<text x="221.6" y="589.0" font-size="14" font-weight="700" fill="#B06000" text-anchor="middle">&lt;50ms 200 OK &amp; Loading Dots</text>
+<text x="221.6" y="609.0" font-size="11.5" fill="#B06000" fill-opacity="0.85" text-anchor="middle">Calls /v2/bot/chat/loading/start (20s animation)</text>
+<rect x="66.0" y="641.0" width="311.1" height="65.0" rx="11" fill="#FEF7E0" stroke="#F9AB00" stroke-width="2.5"/>
+<text x="221.6" y="668.0" font-size="14" font-weight="700" fill="#B06000" text-anchor="middle">Firestore ACTIVE Pre-Check</text>
+<text x="221.6" y="688.0" font-size="11.5" fill="#B06000" fill-opacity="0.85" text-anchor="middle">If SUSPENDED → locks back to 1-Card Menu (403)</text>
+<rect x="66.0" y="720.0" width="311.1" height="65.0" rx="11" fill="#FEF7E0" stroke="#F9AB00" stroke-width="2"/>
+<text x="221.6" y="747.0" font-size="14" font-weight="700" fill="#B06000" text-anchor="middle">22s Free replyToken Watchdog</text>
+<text x="221.6" y="767.0" font-size="11.5" fill="#B06000" fill-opacity="0.85" text-anchor="middle">&lt;22s: Free Reply API ($0) · &gt;=22s: Push Fallback</text>
+<rect x="505.1" y="441.0" width="340.8" height="362.0" rx="16" fill="none" stroke="#9334E6" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="523.1" y="468.0" font-size="14" font-weight="700" fill="#9334E6">PHASE B2. CX AGENT STUDIO (CES)</text>
+<rect x="523.1" y="483.0" width="304.8" height="65.0" rx="11" fill="#F3E8FD" stroke="#9334E6" stroke-width="2.5"/>
+<text x="675.5" y="510.0" font-size="14" font-weight="700" fill="#8430CE" text-anchor="middle">Root Supervisor Agent (v2.0)</text>
+<text x="675.5" y="530.0" font-size="11.5" fill="#8430CE" fill-opacity="0.85" text-anchor="middle">Session ID isolated per (line_user_id, partner_id)</text>
+<rect x="523.1" y="562.0" width="304.8" height="65.0" rx="11" fill="#F3E8FD" stroke="#9334E6" stroke-width="2"/>
+<text x="675.5" y="589.0" font-size="14" font-weight="700" fill="#8430CE" text-anchor="middle">2-Element SessionInput List</text>
+<text x="675.5" y="609.0" font-size="11.5" fill="#8430CE" fill-opacity="0.85" text-anchor="middle">[{&quot;variables&quot;: {&quot;line_user_id&quot;}}, {&quot;text&quot;: &quot;...&quot;}]</text>
+<rect x="523.1" y="641.0" width="304.8" height="65.0" rx="11" fill="#F3E8FD" stroke="#9334E6" stroke-width="2.5"/>
+<text x="675.5" y="668.0" font-size="14" font-weight="700" fill="#8430CE" text-anchor="middle">Zero-Token LLM Context</text>
+<text x="675.5" y="688.0" font-size="11.5" fill="#8430CE" fill-opacity="0.85" text-anchor="middle">LLM never sees ya29... OAuth tokens in prompt</text>
+<rect x="523.1" y="720.0" width="304.8" height="65.0" rx="11" fill="#F3E8FD" stroke="#9334E6" stroke-width="2"/>
+<text x="675.5" y="747.0" font-size="14" font-weight="700" fill="#8430CE" text-anchor="middle">CES McpToolset (Pinned Tools)</text>
+<text x="675.5" y="767.0" font-size="11.5" fill="#8430CE" fill-opacity="0.85" text-anchor="middle">Forwards customHeaders: x-line-user-id to AGW</text>
+<rect x="955.9" y="441.0" width="363.1" height="362.0" rx="16" fill="none" stroke="#1A73E8" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="973.9" y="468.0" font-size="14" font-weight="700" fill="#1A73E8">PHASE B3. GEAP AGW &amp; STS BROKER</text>
+<rect x="973.9" y="483.0" width="327.1" height="65.0" rx="11" fill="#E8F0FE" stroke="#1A73E8" stroke-width="2.5"/>
+<text x="1137.4" y="510.0" font-size="14" font-weight="700" fill="#1A73E8" text-anchor="middle">GEAP Agent Gateway (MCP)</text>
+<text x="1137.4" y="530.0" font-size="11.5" fill="#1A73E8" fill-opacity="0.85" text-anchor="middle">CLIENT_TO_AGENT · Agent Registry Governance</text>
+<rect x="973.9" y="562.0" width="327.1" height="65.0" rx="11" fill="#E8F0FE" stroke="#1A73E8" stroke-width="2"/>
+<text x="1137.4" y="589.0" font-size="14" font-weight="700" fill="#1A73E8" text-anchor="middle">1P AuthzExtensions (IAP &amp; DLP)</text>
+<text x="1137.4" y="609.0" font-size="11.5" fill="#1A73E8" fill-opacity="0.85" text-anchor="middle">REQUEST_AUTHZ (IAP) + CONTENT_AUTHZ (Model Armor)</text>
+<rect x="973.9" y="641.0" width="327.1" height="65.0" rx="11" fill="#E8F0FE" stroke="#1A73E8" stroke-width="2.5"/>
+<text x="1137.4" y="668.0" font-size="14" font-weight="700" fill="#1A73E8" text-anchor="middle">Stateless IAM STS Token Broker</text>
+<text x="1137.4" y="688.0" font-size="11.5" fill="#1A73E8" fill-opacity="0.85" text-anchor="middle">/ext-proc/oauth-broker checks Firestore ACTIVE</text>
+<rect x="973.9" y="720.0" width="327.1" height="65.0" rx="11" fill="#E8F0FE" stroke="#1A73E8" stroke-width="2.5"/>
+<text x="1137.4" y="747.0" font-size="14" font-weight="700" fill="#1A73E8" text-anchor="middle">RAM-Only Partner Token Mint</text>
+<text x="1137.4" y="767.0" font-size="11.5" fill="#1A73E8" fill-opacity="0.85" text-anchor="middle">iamcredentials generateAccessToken (or WIF STS)</text>
+<rect x="1429.0" y="441.0" width="363.3" height="362.0" rx="16" fill="none" stroke="#1E8E3E" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="1447.0" y="468.0" font-size="14" font-weight="700" fill="#1E8E3E">PHASE B4. FASTMCP, BQCA &amp; BQ RLS</text>
+<rect x="1447.0" y="483.0" width="327.3" height="65.0" rx="11" fill="#E6F4EA" stroke="#1E8E3E" stroke-width="2.5"/>
+<text x="1610.6" y="510.0" font-size="14" font-weight="700" fill="#137333" text-anchor="middle">FastMCP Server (POST /mcp/)</text>
+<text x="1610.6" y="530.0" font-size="11.5" fill="#137333" fill-opacity="0.85" text-anchor="middle">Receives injected Partner Bearer token + RLS scope</text>
+<rect x="1447.0" y="562.0" width="327.3" height="65.0" rx="11" fill="#E6F4EA" stroke="#1E8E3E" stroke-width="2.5"/>
+<text x="1610.6" y="589.0" font-size="14" font-weight="700" fill="#137333" text-anchor="middle">BQCA Regional Streaming API</text>
+<text x="1610.6" y="609.0" font-size="11.5" fill="#137333" fill-opacity="0.85" text-anchor="middle">geminidataanalytics.us.rep (:chat) w/ Partner Token</text>
+<rect x="1447.0" y="641.0" width="327.3" height="65.0" rx="11" fill="#E6F4EA" stroke="#1E8E3E" stroke-width="2.5"/>
+<text x="1610.6" y="668.0" font-size="14" font-weight="700" fill="#137333" text-anchor="middle">BigQuery Native ROW ACCESS POLICY</text>
+<text x="1610.6" y="688.0" font-size="11.5" fill="#137333" fill-opacity="0.85" text-anchor="middle">Storage Engine filters Store #2633 / #3773 / ALL</text>
+<rect x="1447.0" y="720.0" width="327.3" height="65.0" rx="11" fill="#E6F4EA" stroke="#1E8E3E" stroke-width="2"/>
+<text x="1610.6" y="747.0" font-size="14" font-weight="700" fill="#137333" text-anchor="middle">Vega-Lite → PNG &amp; Flex Bubble</text>
+<text x="1610.6" y="767.0" font-size="11.5" fill="#137333" fill-opacity="0.85" text-anchor="middle">vl-convert 2x DPI PNG → GCS → LINE Flex Reply</text>
+<line x1="409.1" y1="622.0" x2="491.1" y2="622.0" stroke="#5F6368" stroke-width="2" marker-start="url(#ah)" marker-end="url(#ah)"/>
+<text x="450.1" y="597.0" font-size="12.5" fill="#5F6368" text-anchor="middle">CES :runSession</text>
+<text x="450.1" y="611.0" font-size="12.5" fill="#5F6368" text-anchor="middle">(x-line-user-id)</text>
+<line x1="859.9" y1="622.0" x2="941.9" y2="622.0" stroke="#5F6368" stroke-width="2" marker-start="url(#ah)" marker-end="url(#ah)"/>
+<text x="900.9" y="597.0" font-size="12.5" fill="#5F6368" text-anchor="middle">MCP JSON-RPC</text>
+<text x="900.9" y="611.0" font-size="12.5" fill="#5F6368" text-anchor="middle">+ x-line-user-id</text>
+<line x1="1333.0" y1="622.0" x2="1415.0" y2="622.0" stroke="#5F6368" stroke-width="2" marker-start="url(#ah)" marker-end="url(#ah)"/>
+<text x="1374.0" y="597.0" font-size="12.5" fill="#5F6368" text-anchor="middle">RAM STS Bearer</text>
+<text x="1374.0" y="611.0" font-size="12.5" fill="#5F6368" text-anchor="middle">+ RLS Headers</text>
+</svg>

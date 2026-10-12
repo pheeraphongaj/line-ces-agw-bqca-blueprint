@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="657" viewBox="0 0 1800 657" font-family="'Noto Sans CJK JP','Noto Sans JP','Roboto','Arial',sans-serif">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5F6368"/></marker></defs>
+<rect width="1800" height="657" fill="#FFFFFF"/>
+<text x="48" y="74" font-size="26" font-weight="700" fill="#202124">Enterprise Multi-Tenant RLS Scaling Dataflow: From &lt;50 PoC to 10,000+ External Partners</text>
+<text x="48" y="100" font-size="14" fill="#5F6368">Overcoming BigQuery&#x27;s 100-Policy/Table &amp; Cloud IAM&#x27;s 1,000-SA Quotas via Workforce Identity Federation (WIF) + 1 Dynamic Lookup Policy</text>
+<rect x="48.0" y="124.0" width="340.8" height="283.0" rx="16" fill="none" stroke="#F9AB00" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="66.0" y="151.0" font-size="14" font-weight="700" fill="#F9AB00">1. 10,000+ PARTNER AUTH (LINE &amp; CIP)</text>
+<rect x="66.0" y="166.0" width="304.8" height="65.0" rx="11" fill="#FEF7E0" stroke="#F9AB00" stroke-width="2.5"/>
+<text x="218.4" y="193.0" font-size="14" font-weight="700" fill="#B06000" text-anchor="middle">10,000+ External Retail Partners</text>
+<text x="218.4" y="213.0" font-size="11.5" fill="#B06000" fill-opacity="0.85" text-anchor="middle">Store Managers &amp; Franchisees on LINE OA</text>
+<rect x="66.0" y="245.0" width="304.8" height="65.0" rx="11" fill="#FEF7E0" stroke="#F9AB00" stroke-width="2.5"/>
+<text x="218.4" y="272.0" font-size="14" font-weight="700" fill="#B06000" text-anchor="middle">Partner CIP / OIDC Login</text>
+<text x="218.4" y="292.0" font-size="11.5" fill="#B06000" fill-opacity="0.85" text-anchor="middle">Authenticates via Google Identity Platform (CIP)</text>
+<rect x="66.0" y="324.0" width="304.8" height="65.0" rx="11" fill="#FEF7E0" stroke="#F9AB00" stroke-width="2"/>
+<text x="218.4" y="351.0" font-size="14" font-weight="700" fill="#B06000" text-anchor="middle">Firestore Entitlements Cache</text>
+<text x="218.4" y="371.0" font-size="11.5" fill="#B06000" fill-opacity="0.85" text-anchor="middle">line_partner_registry/{uid} (&lt;5ms point lookup)</text>
+<rect x="498.8" y="124.0" width="344.3" height="283.0" rx="16" fill="none" stroke="#1A73E8" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="516.8" y="151.0" font-size="14" font-weight="700" fill="#1A73E8">2. STATELESS WIF STS EXCHANGE</text>
+<rect x="516.8" y="166.0" width="308.3" height="65.0" rx="11" fill="#E8F0FE" stroke="#1A73E8" stroke-width="2.5"/>
+<text x="671.0" y="193.0" font-size="14" font-weight="700" fill="#1A73E8" text-anchor="middle">GEAP AGW Service Extension</text>
+<text x="671.0" y="213.0" font-size="11.5" fill="#1A73E8" fill-opacity="0.85" text-anchor="middle">Verifies status == ACTIVE in Firestore</text>
+<rect x="516.8" y="245.0" width="308.3" height="65.0" rx="11" fill="#E8F0FE" stroke="#1A73E8" stroke-width="2.5"/>
+<text x="671.0" y="272.0" font-size="14" font-weight="700" fill="#1A73E8" text-anchor="middle">Workforce Identity Federation (WIF)</text>
+<text x="671.0" y="292.0" font-size="11.5" fill="#1A73E8" fill-opacity="0.85" text-anchor="middle">sts.googleapis.com exchanges OIDC JWT in RAM</text>
+<rect x="516.8" y="324.0" width="308.3" height="65.0" rx="11" fill="#E8F0FE" stroke="#1A73E8" stroke-width="2.5"/>
+<text x="671.0" y="351.0" font-size="14" font-weight="700" fill="#1A73E8" text-anchor="middle">0 Partner Service Accounts!</text>
+<text x="671.0" y="371.0" font-size="11.5" fill="#1A73E8" fill-opacity="0.85" text-anchor="middle">Eliminates 1,000 SA/project IAM quota bottleneck</text>
+<rect x="953.1" y="124.0" width="344.2" height="283.0" rx="16" fill="none" stroke="#9334E6" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="971.1" y="151.0" font-size="14" font-weight="700" fill="#9334E6">3. BQCA &amp; DYNAMIC SUBQUERY RLS</text>
+<rect x="971.1" y="166.0" width="308.2" height="65.0" rx="11" fill="#F3E8FD" stroke="#9334E6" stroke-width="2.5"/>
+<text x="1125.2" y="193.0" font-size="14" font-weight="700" fill="#8430CE" text-anchor="middle">BQCA Regional :chat API</text>
+<text x="1125.2" y="213.0" font-size="11.5" fill="#8430CE" fill-opacity="0.85" text-anchor="middle">Called with Partner&#x27;s WIF Bearer Token</text>
+<rect x="971.1" y="245.0" width="308.2" height="65.0" rx="11" fill="#F3E8FD" stroke="#9334E6" stroke-width="2.5"/>
+<text x="1125.2" y="272.0" font-size="14" font-weight="700" fill="#8430CE" text-anchor="middle">BigQuery SESSION_USER()</text>
+<text x="1125.2" y="292.0" font-size="11.5" fill="#8430CE" fill-opacity="0.85" text-anchor="middle">Resolves to partner.polk@iowa-beverage.com</text>
+<rect x="971.1" y="324.0" width="308.2" height="65.0" rx="11" fill="#F3E8FD" stroke="#9334E6" stroke-width="2.5"/>
+<text x="1125.2" y="351.0" font-size="14" font-weight="700" fill="#8430CE" text-anchor="middle">Only 2 Policies on Fact Table!</text>
+<text x="1125.2" y="371.0" font-size="11.5" fill="#8430CE" fill-opacity="0.85" text-anchor="middle">1. rls_internal_all_access · 2. rls_dynamic_lookup</text>
+<rect x="1407.4" y="124.0" width="344.3" height="283.0" rx="16" fill="none" stroke="#1E8E3E" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="1425.4" y="151.0" font-size="14" font-weight="700" fill="#1E8E3E">4. ENTITLEMENTS JOIN &amp; STORAGE FILTER</text>
+<rect x="1425.4" y="166.0" width="308.3" height="65.0" rx="11" fill="#E6F4EA" stroke="#1E8E3E" stroke-width="2.5"/>
+<text x="1579.5" y="193.0" font-size="14" font-weight="700" fill="#137333" text-anchor="middle">rls_partner_entitlements Table</text>
+<text x="1579.5" y="213.0" font-size="11.5" fill="#137333" fill-opacity="0.85" text-anchor="middle">Clustered by (partner_principal, status, store)</text>
+<rect x="1425.4" y="245.0" width="308.3" height="65.0" rx="11" fill="#E6F4EA" stroke="#1E8E3E" stroke-width="2.5"/>
+<text x="1579.5" y="272.0" font-size="14" font-weight="700" fill="#137333" text-anchor="middle">EXISTS (...) Subquery Predicate</text>
+<text x="1579.5" y="292.0" font-size="11.5" fill="#137333" fill-opacity="0.85" text-anchor="middle">Matches SESSION_USER() ↔ allowed_store_number</text>
+<rect x="1425.4" y="324.0" width="308.3" height="65.0" rx="11" fill="#E6F4EA" stroke="#1E8E3E" stroke-width="2.5"/>
+<text x="1579.5" y="351.0" font-size="14" font-weight="700" fill="#137333" text-anchor="middle">Zero-DDL Partner Onboarding</text>
+<text x="1579.5" y="371.0" font-size="11.5" fill="#137333" fill-opacity="0.85" text-anchor="middle">Partner #10,001 = 1 SQL INSERT row (0 DDL edits!)</text>
+<line x1="402.8" y1="265.5" x2="484.8" y2="265.5" stroke="#5F6368" stroke-width="2" marker-end="url(#ah)"/>
+<text x="443.8" y="240.5" font-size="12.5" fill="#5F6368" text-anchor="middle">Partner JWT</text>
+<text x="443.8" y="254.5" font-size="12.5" fill="#5F6368" text-anchor="middle">+ x-line-user-id</text>
+<line x1="857.1" y1="265.5" x2="939.1" y2="265.5" stroke="#5F6368" stroke-width="2" marker-end="url(#ah)"/>
+<text x="898.1" y="240.5" font-size="12.5" fill="#5F6368" text-anchor="middle">WIF STS Token</text>
+<text x="898.1" y="254.5" font-size="12.5" fill="#5F6368" text-anchor="middle">(RAM Only)</text>
+<line x1="1311.4" y1="265.5" x2="1393.4" y2="265.5" stroke="#5F6368" stroke-width="2" marker-start="url(#ah)" marker-end="url(#ah)"/>
+<text x="1352.4" y="240.5" font-size="12.5" fill="#5F6368" text-anchor="middle">SESSION_USER()</text>
+<text x="1352.4" y="254.5" font-size="12.5" fill="#5F6368" text-anchor="middle">Subquery Join</text>
+<rect x="273.7" y="459.0" width="320.8" height="132.0" rx="11" fill="#E8F0FE" stroke="#1A73E8" stroke-width="2.5"/>
+<text x="434.1" y="486.0" font-size="14" font-weight="700" fill="#1A73E8" text-anchor="middle">Approach 1 (&lt;50 Partners PoC):</text>
+<text x="434.1" y="505.0" font-size="14" font-weight="700" fill="#1A73E8" text-anchor="middle">Per-Partner SA</text>
+<text x="434.1" y="525.0" font-size="11.5" fill="#1A73E8" fill-opacity="0.85" text-anchor="middle">1 Partner = 1 Service Account + 1 Static ROW ACCESS</text>
+<text x="434.1" y="541.0" font-size="11.5" fill="#1A73E8" fill-opacity="0.85" text-anchor="middle">POLICY.</text>
+<text x="434.1" y="557.0" font-size="11.5" fill="#1A73E8" fill-opacity="0.85" text-anchor="middle">Simple for PoC, but hits BigQuery 100-policy limit at</text>
+<text x="434.1" y="573.0" font-size="11.5" fill="#1A73E8" fill-opacity="0.85" text-anchor="middle">Partner #101.</text>
+<rect x="740.5" y="459.0" width="318.1" height="132.0" rx="11" fill="#E6F4EA" stroke="#1E8E3E" stroke-width="2.5"/>
+<text x="899.6" y="486.0" font-size="14" font-weight="700" fill="#137333" text-anchor="middle">Approach 3 (1,000–1,000,000+</text>
+<text x="899.6" y="505.0" font-size="14" font-weight="700" fill="#137333" text-anchor="middle">Recommended): WIF + 1 Lookup Policy</text>
+<text x="899.6" y="525.0" font-size="11.5" fill="#137333" fill-opacity="0.85" text-anchor="middle">0 Partner SAs + 1 Dynamic Subquery ROW ACCESS</text>
+<text x="899.6" y="541.0" font-size="11.5" fill="#137333" fill-opacity="0.85" text-anchor="middle">POLICY joining rls_partner_entitlements.</text>
+<text x="899.6" y="557.0" font-size="11.5" fill="#137333" fill-opacity="0.85" text-anchor="middle">Scales to millions of partners with 1 SQL INSERT per</text>
+<text x="899.6" y="573.0" font-size="11.5" fill="#137333" fill-opacity="0.85" text-anchor="middle">new partner.</text>
+<rect x="1204.6" y="459.0" width="321.3" height="132.0" rx="11" fill="#F3E8FD" stroke="#9334E6" stroke-width="2.5"/>
+<text x="1365.3" y="486.0" font-size="14" font-weight="700" fill="#8430CE" text-anchor="middle">Approach 4 (No-WIF Alternative): Single</text>
+<text x="1365.3" y="505.0" font-size="14" font-weight="700" fill="#8430CE" text-anchor="middle">SA + Authorized TVF</text>
+<text x="1365.3" y="525.0" font-size="11.5" fill="#8430CE" fill-opacity="0.85" text-anchor="middle">When running 1 shared Service Account without WIF:</text>
+<text x="1365.3" y="541.0" font-size="11.5" fill="#8430CE" fill-opacity="0.85" text-anchor="middle">FastMCP rewrites SQL AST (sqlglot)</text>
+<text x="1365.3" y="557.0" font-size="11.5" fill="#8430CE" fill-opacity="0.85" text-anchor="middle">or queries Authorized TVF</text>
+<text x="1365.3" y="573.0" font-size="11.5" fill="#8430CE" fill-opacity="0.85" text-anchor="middle">sales_for_partner(@verified_partner_id).</text>
+</svg>
