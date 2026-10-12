@@ -9,6 +9,12 @@
 
 This repository provides a complete, production-verified reference implementation connecting a **LINE Official Account (Messaging API)** to **Google Cloud Next-Gen CX Agent Studio (CES)**, governed by **GEAP Agent Gateway (`networkservices.googleapis.com`)**, **FastMCP**, **BigQuery Conversational Analytics (`geminidataanalytics.googleapis.com`)**, and **BigQuery Native Row-Level Security (`ROW ACCESS POLICY`)**.
 
+
+##Demo Video :
+https://github.com/user-attachments/assets/61b716f9-d80e-4207-84e4-1a7dcc5ca5d2
+
+
+
 ![Hybrid Partner & Enterprise Architecture](assets/diagrams/slide_7_agw_service_extension_architecture.png)
 
 ### Key Architectural Capabilities
