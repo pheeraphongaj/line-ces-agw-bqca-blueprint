@@ -1,0 +1,2049 @@
+import asyncio
+import base64
+import hashlib
+import hmac
+import json
+import logging
+import os
+import time
+import urllib.parse
+import uuid
+from typing import Any, Dict, List, Optional
+
+import google.auth
+import google.auth.transport.requests
+import httpx
+import vl_convert as vlc
+from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request, Response
+from fastapi.responses import HTMLResponse, JSONResponse
+from google.cloud import storage
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("iowa-line-bqca-adapter")
+
+PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "your-agent-host-project-id")
+CES_LOCATION = os.environ.get("CES_LOCATION", "us")
+CES_APP_ID = os.environ.get("CES_APP_ID", "")
+
+BQCA_LOCATION = os.environ.get("BQCA_LOCATION", "us")
+BQCA_AGENT_ID = os.environ.get(
+    "BQCA_AGENT_ID", "your-bqca-data-agent-id"
+)
+# Trap #1: Regional Endpoint is required for locations/us BQCA DataAgents
+BQCA_CHAT_URL = (
+    f"https://geminidataanalytics.{BQCA_LOCATION}.rep.googleapis.com/v1beta/"
+    f"projects/{PROJECT_ID}/locations/{BQCA_LOCATION}:chat"
+)
+BQCA_AGENT_RESOURCE = (
+    f"projects/{PROJECT_ID}/locations/{BQCA_LOCATION}/dataAgents/{BQCA_AGENT_ID}"
+)
+
+FIRESTORE_BASE_URL = (
+    f"https://firestore.googleapis.com/v1/projects/{PROJECT_ID}/"
+    "databases/(default)/documents"
+)
+PARTNER_ACCOUNTS_COLLECTION = "line_partner_accounts"
+PARTNER_REGISTRY_COLLECTION = "line_partner_registry"
+
+CHART_BUCKET = os.environ.get("CHART_BUCKET", "your-agent-host-project-id-line-charts")
+PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "")
+IAP_AUTH_BASE_URL = os.environ.get(
+    "IAP_AUTH_BASE_URL",
+    "https://line-iap-auth-<REGION_HASH>.a.run.app",
+).rstrip("/")
+UNLOCKED_RICHMENU_ID = os.environ.get(
+    "UNLOCKED_RICHMENU_ID", "richmenu-your-6card-analytics-menu-id"
+)
+LOGIN_RICHMENU_ID = os.environ.get(
+    "LOGIN_RICHMENU_ID", "richmenu-your-1card-login-menu-id"
+)
+
+LINE_CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "").strip()
+LINE_CHANNEL_ACCESS_TOKEN = os.environ.get(
+    "LINE_CHANNEL_ACCESS_TOKEN", ""
+).strip()
+CUTOFF_SECONDS = float(os.environ.get("LINE_REPLY_CUTOFF_SECONDS", "22.0"))
+
+# In-memory caches:
+# - STS_TOKEN_MEM_CACHE holds short-lived Google Access Tokens in RAM ONLY (Zero Token Storage on GCS/Firestore!)
+CHART_CACHE: Dict[str, bytes] = {}
+TURN_ARTIFACTS: Dict[str, Dict[str, Any]] = {}
+REGISTRY_MEM_CACHE: Dict[str, Dict[str, Any]] = {}
+STS_TOKEN_MEM_CACHE: Dict[str, Dict[str, Any]] = {}
+RUNTIME_CONFIG_CACHE: Dict[str, Any] = {"ts": 0.0, "data": {}}
+
+
+def hash_password(password: str) -> str:
+  return hashlib.sha256(f"iowa-partner-salt:{password}".encode("utf-8")).hexdigest()
+
+
+MOCK_PARTNER_ACCOUNTS: Dict[str, Dict[str, Any]] = {
+    "partner.polk@iowa-beverage.com": {
+        "email": "partner.polk@iowa-beverage.com",
+        "password_plain_hint": "IowaPartner#2026",
+        "password_hash": hash_password("IowaPartner#2026"),
+        "partner_id": "PARTNER-POLK-001",
+        "partner_name": "Hy-Vee #3 Des Moines (Store #2633)",
+        "partner_tier": "GOLD",
+        "service_account": "sa-partner-polk@your-agent-host-project-id.iam.gserviceaccount.com",
+        "rls_policy_name": "rls_partner_polk_store_2633",
+        "rls_scope": "Polk • Store #2633 (HY-VEE #3 ONLY)",
+        "rls_sql_filter": "LOWER(county) = 'polk' AND store_number = '2633'",
+        "status": "ACTIVE",
+        "auth_mode": "PARTNER_CIP_FIRESTORE",
+    },
+    "partner.east@midwest-spirits.com": {
+        "email": "partner.east@midwest-spirits.com",
+        "password_plain_hint": "Midwest#2026",
+        "password_hash": hash_password("Midwest#2026"),
+        "partner_id": "PARTNER-EAST-002",
+        "partner_name": "Benz Distributing Cedar Rapids (Store #3773)",
+        "partner_tier": "SILVER",
+        "service_account": "sa-partner-east@your-agent-host-project-id.iam.gserviceaccount.com",
+        "rls_policy_name": "rls_partner_east_store_3773",
+        "rls_scope": "Linn • Store #3773 (BENZ DIST ONLY)",
+        "rls_sql_filter": "LOWER(county) = 'linn' AND store_number = '3773'",
+        "status": "ACTIVE",
+        "auth_mode": "PARTNER_CIP_FIRESTORE",
+    },
+    "vip@heartland-retail.com": {
+        "email": "vip@heartland-retail.com",
+        "password_plain_hint": "Heartland#2026",
+        "password_hash": hash_password("Heartland#2026"),
+        "partner_id": "PARTNER-VIP-003",
+        "partner_name": "Heartland Retail Corp. (Statewide)",
+        "partner_tier": "PLATINUM",
+        "service_account": "123456789012-compute@developer.gserviceaccount.com",
+        "rls_policy_name": "rls_internal_all_access",
+        "rls_scope": "ALL_IOWA",
+        "rls_sql_filter": "TRUE",
+        "status": "ACTIVE",
+        "auth_mode": "PARTNER_CIP_FIRESTORE",
+    },
+    "suspended@old-liquor.com": {
+        "email": "suspended@old-liquor.com",
+        "password_plain_hint": "Revoked#2026",
+        "password_hash": hash_password("Revoked#2026"),
+        "partner_id": "PARTNER-REV-999",
+        "partner_name": "Legacy Liquor LLC (Expired Contract)",
+        "partner_tier": "EXPIRED",
+        "service_account": "",
+        "rls_policy_name": "NONE",
+        "rls_scope": "NONE",
+        "rls_sql_filter": "FALSE",
+        "status": "SUSPENDED",
+        "auth_mode": "PARTNER_CIP_FIRESTORE",
+    },
+}
+
+app = FastAPI(
+    title="Iowa Liquor Sales LINE <-> Hybrid CIP/IAP & Firestore Partner Registry <-> CES <-> AGW <-> BQCA",
+    version="2.3.0-bq-native-rls",
+)
+
+
+def get_runtime_config() -> Dict[str, Any]:
+  now = time.monotonic()
+  if now - RUNTIME_CONFIG_CACHE["ts"] < 15.0 and RUNTIME_CONFIG_CACHE["data"]:
+    return RUNTIME_CONFIG_CACHE["data"]
+  try:
+    storage_client = storage.Client(project=PROJECT_ID)
+    bucket = storage_client.bucket(CHART_BUCKET)
+    blob = bucket.blob("config/runtime.json")
+    if blob.exists():
+      data = json.loads(blob.download_as_text())
+      RUNTIME_CONFIG_CACHE["ts"] = now
+      RUNTIME_CONFIG_CACHE["data"] = data
+      return data
+  except Exception as e:
+    logger.debug("Runtime config fetch skipped: %s", e)
+  RUNTIME_CONFIG_CACHE["ts"] = now
+  return RUNTIME_CONFIG_CACHE["data"]
+
+
+def get_effective_ces_app_id() -> str:
+  if CES_APP_ID:
+    return CES_APP_ID
+  return get_runtime_config().get("ces_app_id", "")
+
+
+def get_effective_base_url(request_base: str = "") -> str:
+  if PUBLIC_BASE_URL:
+    return PUBLIC_BASE_URL.rstrip("/")
+  cfg_url = get_runtime_config().get("public_base_url", "")
+  if cfg_url:
+    return cfg_url.rstrip("/")
+  return request_base.rstrip("/")
+
+
+def get_effective_iap_auth_url() -> str:
+  cfg_url = get_runtime_config().get("iap_auth_base_url", "")
+  if cfg_url:
+    return cfg_url.rstrip("/")
+  return IAP_AUTH_BASE_URL
+
+
+def get_gcp_bearer_token() -> str:
+  creds, _ = google.auth.default(
+      scopes=[
+          "https://www.googleapis.com/auth/cloud-platform",
+          "https://www.googleapis.com/auth/bigquery",
+          "https://www.googleapis.com/auth/datastore",
+      ]
+  )
+  creds.refresh(google.auth.transport.requests.Request())
+  return creds.token
+
+
+def get_stateless_sts_token(
+    principal_key: str = "default", target_sa: str = ""
+) -> Dict[str, Any]:
+  """Stateless IAM STS Token Broker (RAM Cache ONLY — Impersonates Partner Service Account via iamcredentials.googleapis.com)."""
+  cache_key = f"{principal_key}:{target_sa}"
+  now = int(time.time())
+  cached = STS_TOKEN_MEM_CACHE.get(cache_key)
+  if cached and int(cached.get("expiry", 0)) > now + 120:
+    return cached
+
+  host_token = get_gcp_bearer_token()
+  impersonated_token = host_token
+  effective_sa = target_sa or "123456789012-compute@developer.gserviceaccount.com"
+
+  if (
+      target_sa
+      and target_sa != "123456789012-compute@developer.gserviceaccount.com"
+  ):
+    iam_url = (
+        "https://iamcredentials.googleapis.com/v1/projects/-/"
+        f"serviceAccounts/{target_sa}:generateAccessToken"
+    )
+    try:
+      with httpx.Client(timeout=8.0) as client:
+        resp = client.post(
+            iam_url,
+            headers={
+                "Authorization": f"Bearer {host_token}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "scope": [
+                    "https://www.googleapis.com/auth/cloud-platform",
+                    "https://www.googleapis.com/auth/bigquery",
+                ],
+                "lifetime": "3500s",
+            },
+        )
+        resp.raise_for_status()
+        impersonated_token = resp.json()["accessToken"]
+        logger.info("Minted impersonated STS token for Partner SA: %s", target_sa)
+    except Exception as e:
+      logger.error("Failed to impersonate Partner SA %s: %s", target_sa, e)
+
+  entry = {
+      "access_token": impersonated_token,
+      "expiry": now + 3300,
+      "principal_key": principal_key,
+      "impersonated_sa": effective_sa,
+      "storage": "RAM_ONLY_ZERO_PERSISTENT_VAULT",
+  }
+  STS_TOKEN_MEM_CACHE[cache_key] = entry
+  return entry
+
+
+# =====================================================================
+# 0. Firestore Native REST Helpers (Zero Token Vault — Identity & RLS Only)
+# =====================================================================
+def _to_firestore_fields(data: Dict[str, Any]) -> Dict[str, Any]:
+  fields: Dict[str, Any] = {}
+  for k, v in data.items():
+    if v is None:
+      continue
+    if isinstance(v, bool):
+      fields[k] = {"booleanValue": v}
+    elif isinstance(v, int):
+      fields[k] = {"integerValue": str(v)}
+    elif isinstance(v, float):
+      fields[k] = {"doubleValue": v}
+    else:
+      fields[k] = {"stringValue": str(v)}
+  return {"fields": fields}
+
+
+def _from_firestore_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
+  out: Dict[str, Any] = {}
+  for k, v in (doc.get("fields") or {}).items():
+    if "stringValue" in v:
+      out[k] = v["stringValue"]
+    elif "integerValue" in v:
+      out[k] = int(v["integerValue"])
+    elif "doubleValue" in v:
+      out[k] = float(v["doubleValue"])
+    elif "booleanValue" in v:
+      out[k] = bool(v["booleanValue"])
+  return out
+
+
+def firestore_get_doc(collection: str, doc_id: str) -> Optional[Dict[str, Any]]:
+  safe_id = urllib.parse.quote(doc_id, safe="")
+  url = f"{FIRESTORE_BASE_URL}/{collection}/{safe_id}"
+  try:
+    token = get_gcp_bearer_token()
+    with httpx.Client(timeout=8.0) as client:
+      resp = client.get(url, headers={"Authorization": f"Bearer {token}"})
+      if resp.status_code == 404:
+        return None
+      resp.raise_for_status()
+      return _from_firestore_doc(resp.json())
+  except Exception as e:
+    logger.warning("Firestore GET %s/%s failed: %s", collection, doc_id, e)
+    return None
+
+
+def firestore_set_doc(collection: str, doc_id: str, data: Dict[str, Any]) -> bool:
+  safe_id = urllib.parse.quote(doc_id, safe="")
+  url = f"{FIRESTORE_BASE_URL}/{collection}/{safe_id}"
+  try:
+    token = get_gcp_bearer_token()
+    with httpx.Client(timeout=8.0) as client:
+      resp = client.patch(
+          url,
+          headers={
+              "Authorization": f"Bearer {token}",
+              "Content-Type": "application/json",
+          },
+          json=_to_firestore_fields(data),
+      )
+      resp.raise_for_status()
+      return True
+  except Exception as e:
+    logger.warning("Firestore PATCH %s/%s failed: %s", collection, doc_id, e)
+    return False
+
+
+def firestore_delete_doc(collection: str, doc_id: str) -> bool:
+  safe_id = urllib.parse.quote(doc_id, safe="")
+  url = f"{FIRESTORE_BASE_URL}/{collection}/{safe_id}"
+  try:
+    token = get_gcp_bearer_token()
+    with httpx.Client(timeout=8.0) as client:
+      resp = client.delete(url, headers={"Authorization": f"Bearer {token}"})
+      return resp.status_code in (200, 204, 404)
+  except Exception as e:
+    logger.warning("Firestore DELETE %s/%s failed: %s", collection, doc_id, e)
+    return False
+
+
+def ensure_mock_partners_seeded() -> List[Dict[str, Any]]:
+  seeded = []
+  for email_key, acct in MOCK_PARTNER_ACCOUNTS.items():
+    doc_key = email_key.lower().strip()
+    firestore_set_doc(PARTNER_ACCOUNTS_COLLECTION, doc_key, acct)
+    seeded.append({
+        "email": acct["email"],
+        "password": acct["password_plain_hint"],
+        "partner_id": acct["partner_id"],
+        "partner_name": acct["partner_name"],
+        "partner_tier": acct["partner_tier"],
+        "rls_scope": acct["rls_scope"],
+        "status": acct["status"],
+    })
+  return seeded
+
+
+def build_state_signature(line_user_id: str, exp: int) -> str:
+  secret = LINE_CHANNEL_SECRET or "fallback-secret"
+  msg = f"{line_user_id}:{exp}".encode("utf-8")
+  return hmac.new(secret.encode("utf-8"), msg, hashlib.sha256).hexdigest()
+
+
+def verify_state_signature(uid: str, exp: int, sig: str) -> bool:
+  if not uid or not sig or time.time() > exp:
+    return False
+  expected = build_state_signature(uid, exp)
+  return hmac.compare_digest(sig, expected)
+
+
+def build_signed_partner_portal_url(line_user_id: str, base_url: str = "") -> str:
+  exp = int(time.time() + 3600)
+  sig = build_state_signature(line_user_id, exp)
+  eff_base = get_effective_base_url(base_url) or "https://line-bqca-adapter-<REGION_HASH>.a.run.app"
+  return (
+      f"{eff_base}/auth/portal?uid={line_user_id}&exp={exp}&sig={sig}"
+      "&openExternalBrowser=1"
+  )
+
+
+def build_signed_iap_login_url(line_user_id: str) -> str:
+  exp = int(time.time() + 3600)
+  sig = build_state_signature(line_user_id, exp)
+  base = get_effective_iap_auth_url()
+  return (
+      f"{base}/auth/login?uid={line_user_id}&exp={exp}&sig={sig}"
+      "&openExternalBrowser=1"
+  )
+
+
+def get_user_auth_session(line_user_id: str) -> Optional[Dict[str, Any]]:
+  """Looks up the LINE User -> Partner/Employee binding in Firestore `line_partner_registry`.
+
+  Zero OAuth tokens are stored in Firestore or GCS. When the user is ACTIVE in
+  Firestore, the Stateless Token Broker mints/fetches a short-lived `ya29...`
+  access token in RAM only by impersonating the Partner's dedicated Service Account
+  (e.g., `sa-partner-polk@your-agent-host-project-id.iam.gserviceaccount.com`), which enforces
+  BigQuery Native `ROW ACCESS POLICY` at the storage engine layer.
+  """
+  if not line_user_id:
+    return None
+  record = firestore_get_doc(PARTNER_REGISTRY_COLLECTION, line_user_id)
+  if not record:
+    REGISTRY_MEM_CACHE.pop(line_user_id, None)
+    return None
+  if not record.get("authenticated") or record.get("status", "ACTIVE") != "ACTIVE":
+    REGISTRY_MEM_CACHE.pop(line_user_id, None)
+    return None
+
+  enriched = dict(record)
+  email_key = (enriched.get("user_email") or "").strip().lower()
+  if email_key in MOCK_PARTNER_ACCOUNTS:
+    acct_template = MOCK_PARTNER_ACCOUNTS[email_key]
+    for k in (
+        "partner_name",
+        "partner_tier",
+        "service_account",
+        "rls_policy_name",
+        "rls_scope",
+        "rls_sql_filter",
+    ):
+      if k in acct_template:
+        enriched[k] = acct_template[k]
+
+  partner_id = enriched.get("partner_id", "PARTNER-DEFAULT")
+  target_sa = enriched.get(
+      "service_account", "123456789012-compute@developer.gserviceaccount.com"
+  )
+  sts_info = get_stateless_sts_token(partner_id, target_sa=target_sa)
+  enriched["oauth2_access_token"] = sts_info["access_token"]
+  enriched["impersonated_sa"] = sts_info["impersonated_sa"]
+  enriched["token_expiry"] = sts_info["expiry"]
+  enriched["token_storage"] = "STATELESS_RAM_STS_NO_GCS"
+  REGISTRY_MEM_CACHE[line_user_id] = enriched
+  return enriched
+
+
+def clear_user_auth_session(line_user_id: str) -> None:
+  REGISTRY_MEM_CACHE.pop(line_user_id, None)
+  firestore_delete_doc(PARTNER_REGISTRY_COLLECTION, line_user_id)
+
+
+async def set_user_richmenu(line_user_id: str, richmenu_id: str) -> bool:
+  if not LINE_CHANNEL_ACCESS_TOKEN or not line_user_id or not richmenu_id:
+    return False
+  url = f"https://api.line.me/v2/bot/user/{line_user_id}/richmenu/{richmenu_id}"
+  async with httpx.AsyncClient(timeout=10.0) as client:
+    resp = await client.post(
+        url,
+        headers={"Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"},
+    )
+    return resp.status_code == 200
+
+
+def build_iap_login_flex_message(line_user_id: str, base_url: str = "") -> Dict[str, Any]:
+  portal_url = build_signed_partner_portal_url(line_user_id, base_url)
+  iap_url = build_signed_iap_login_url(line_user_id)
+  bubble = {
+      "type": "bubble",
+      "size": "mega",
+      "header": {
+          "type": "box",
+          "layout": "vertical",
+          "backgroundColor": "#0F172A",
+          "paddingAll": "16px",
+          "contents": [
+              {
+                  "type": "text",
+                  "text": "🔒 HYBRID IDENTITY GATE (PARTNER CIP + INTERNAL IAP)",
+                  "color": "#38BDF8",
+                  "size": "xxs",
+                  "weight": "bold",
+              },
+              {
+                  "type": "text",
+                  "text": "ยืนยันตัวตน Partner หรือ พนักงานองค์กร",
+                  "color": "#FFFFFF",
+                  "size": "md",
+                  "weight": "bold",
+                  "margin": "xs",
+              },
+          ],
+      },
+      "body": {
+          "type": "box",
+          "layout": "vertical",
+          "spacing": "sm",
+          "contents": [
+              {
+                  "type": "text",
+                  "text": (
+                      "• คู่ค้า (External Partner): ล็อกอินผ่าน Firestore + Impersonate Partner SA บังคับใช้ BigQuery Native ROW ACCESS POLICY ระดับ Store\n"
+                      "• พนักงานภายใน (Internal): ล็อกอินผ่าน Google Cloud IAP SSO\n"
+                      "• ปลอดภัย 100%: ไม่เก็บ OAuth Token ลง gs:// (Stateless IAM STS ใน RAM)"
+                  ),
+                  "size": "xs",
+                  "color": "#334155",
+                  "wrap": True,
+              },
+              {"type": "separator", "margin": "md"},
+              {
+                  "type": "text",
+                  "text": (
+                      "บัญชีทดสอบ Partner (BigQuery Native RLS):\n"
+                      "📧 partner.polk@iowa-beverage.com\n"
+                      "🔑 IowaPartner#2026 (Polk • Store #2633 Hy-Vee #3 เท่านั้น)\n"
+                      "📧 vip@heartland-retail.com\n"
+                      "🔑 Heartland#2026 (All Iowa ทุกร้าน)"
+                  ),
+                  "size": "xxs",
+                  "color": "#0F766E",
+                  "wrap": True,
+                  "margin": "sm",
+              },
+          ],
+      },
+      "footer": {
+          "type": "box",
+          "layout": "vertical",
+          "spacing": "sm",
+          "contents": [
+              {
+                  "type": "button",
+                  "style": "primary",
+                  "color": "#059669",
+                  "action": {
+                      "type": "uri",
+                      "label": "🤝 Partner Login (Firestore CIP)",
+                      "uri": portal_url,
+                  },
+              },
+              {
+                  "type": "button",
+                  "style": "secondary",
+                  "action": {
+                      "type": "uri",
+                      "label": "🔐 Internal Employee (Cloud IAP)",
+                      "uri": iap_url,
+                  },
+              },
+          ],
+      },
+  }
+  return {
+      "type": "flex",
+      "altText": "กรุณายืนยันตัวตน (Partner Login หรือ Internal Cloud IAP) เพื่อปลดล็อก Rich Menu 6 การ์ด",
+      "contents": bubble,
+  }
+
+
+def render_vega_to_png_url(
+    vega_config: Dict[str, Any], base_url: str
+) -> Optional[str]:
+  try:
+    spec = dict(vega_config)
+    if "background" not in spec:
+      spec["background"] = "white"
+    png_bytes = vlc.vegalite_to_png(vl_spec=spec, scale=2.0)
+    chart_id = uuid.uuid4().hex
+    CHART_CACHE[chart_id] = png_bytes
+    try:
+      storage_client = storage.Client(project=PROJECT_ID)
+      bucket = storage_client.bucket(CHART_BUCKET)
+      blob = bucket.blob(f"charts/{chart_id}.png")
+      blob.upload_from_string(png_bytes, content_type="image/png")
+    except Exception as e:
+      logger.warning("GCS upload skipped/failed (serving from /charts): %s", e)
+    effective_base = get_effective_base_url(base_url)
+    if effective_base:
+      return f"{effective_base}/charts/{chart_id}.png"
+    return f"https://storage.googleapis.com/{CHART_BUCKET}/charts/{chart_id}.png"
+  except Exception as e:
+    logger.error("Failed to render Vega-Lite spec to PNG: %s", e)
+    return None
+
+
+async def execute_iowa_bqca_query(
+    question: str,
+    base_url: str = "",
+    oauth_token: str = "",
+    user_email: str = "",
+    partner_id: str = "",
+    rls_scope: str = "",
+    rls_policy_name: str = "",
+    rls_sql_filter: str = "",
+    impersonated_sa: str = "",
+) -> Dict[str, Any]:
+  has_user_oauth = bool(oauth_token and oauth_token.strip().startswith("ya29."))
+  token = oauth_token.strip() if has_user_oauth else get_gcp_bearer_token()
+
+  # Pass the raw user question to BQCA :chat while authenticating with the
+  # Partner's impersonated Service Account token (e.g. sa-partner-polk@...).
+  # BigQuery Native ROW ACCESS POLICY (rls_partner_polk_store_2633) enforces
+  # row-level filtering directly inside the BigQuery storage engine!
+  payload = {
+      "messages": [{"userMessage": {"text": question}}],
+      "dataAgentContext": {
+          "dataAgent": BQCA_AGENT_RESOURCE,
+          "contextVersion": "PUBLISHED",
+      },
+  }
+  t0 = time.monotonic()
+  async with httpx.AsyncClient(timeout=85.0) as client:
+    resp = await client.post(
+        BQCA_CHAT_URL,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "X-Goog-User-Project": PROJECT_ID,
+        },
+        json=payload,
+    )
+    resp.raise_for_status()
+    chunks = resp.json()
+
+  elapsed = round(time.monotonic() - t0, 2)
+  final_texts: List[str] = []
+  generated_sql = ""
+  rows: List[Dict[str, Any]] = []
+  followups: List[str] = []
+  vega_config: Optional[Dict[str, Any]] = None
+
+  for item in chunks:
+    sm = item.get("systemMessage", {})
+    if "text" in sm:
+      t_type = sm["text"].get("textType")
+      parts = sm["text"].get("parts", [])
+      if t_type == "FINAL_RESPONSE":
+        final_texts.extend(parts)
+      elif t_type == "FOLLOWUP_QUESTIONS":
+        followups.extend(parts)
+    if "data" in sm:
+      d = sm["data"]
+      if "generatedSql" in d:
+        generated_sql = d["generatedSql"].strip()
+      if "result" in d and "data" in d["result"]:
+        rows = d["result"]["data"][:10]
+    if "chart" in sm and "result" in sm["chart"]:
+      vega_config = sm["chart"]["result"].get("vegaConfig")
+
+  chart_url = (
+      render_vega_to_png_url(vega_config, base_url) if vega_config else None
+  )
+  raw_answer = "\n".join(final_texts).strip() or "ดำเนินการดึงข้อมูลสำเร็จ"
+  if rows:
+    first_vals = [str(v) for v in rows[0].values() if v is not None]
+    if not any(v in raw_answer for v in first_vals if len(v) >= 4):
+      row_lines = [f"\n📌 ข้อมูลที่ได้รับจาก BigQuery ({len(rows)} แถว):"]
+      for idx, r in enumerate(rows[:5], 1):
+        parts = []
+        for k, v in r.items():
+          if isinstance(v, float):
+            parts.append(f"{k}: ${v:,.2f}" if "sale" in k or "dollar" in k or "rev" in k else f"{k}: {v:,.2f}")
+          else:
+            parts.append(f"{k}: {v}")
+        row_lines.append(f"• #{idx}: " + " | ".join(parts))
+      raw_answer = raw_answer + "\n" + "\n".join(row_lines)
+
+  eff_policy = rls_policy_name or "rls_internal_all_access"
+  eff_sa = impersonated_sa or "123456789012-compute@developer.gserviceaccount.com"
+  if rls_scope and rls_scope not in ("ALL_IOWA", "NONE", ""):
+    rls_note = (
+        f"🛡️ [BigQuery Native RLS: {eff_policy}]\n"
+        f"สิทธิ์ของ {partner_id} ({eff_sa}) ถูกจำกัดด้วย BigQuery Row Access Policy "
+        f"ให้เข้าถึงได้เฉพาะ {rls_scope} เท่านั้น (ระบบบล็อกข้อมูลร้านค้าคู่แข่งรายอื่นในระดับตาราง BigQuery)\n\n"
+    )
+    raw_answer = rls_note + raw_answer
+
+  return {
+      "answer": raw_answer,
+      "generated_sql": generated_sql,
+      "sample_rows": rows,
+      "row_count_returned": len(rows),
+      "chart_image_url": chart_url,
+      "followup_questions": followups[:3],
+      "latency_seconds": elapsed,
+      "authenticated_user": user_email,
+      "partner_id": partner_id,
+      "rls_scope": rls_scope or "ALL_IOWA",
+      "rls_policy_name": eff_policy,
+      "rls_sql_filter": rls_sql_filter or "TRUE",
+      "impersonated_sa": eff_sa,
+      "oauth_token_propagated": has_user_oauth,
+      "token_storage": "STATELESS_RAM_STS_NO_GCS",
+  }
+
+
+# =====================================================================
+# 1. Partner & Enterprise Identity Portal (/auth/portal & /auth/partner-login)
+# =====================================================================
+@app.get("/auth/portal", response_class=HTMLResponse)
+async def partner_login_portal(
+    uid: str = "U_DEMO_PARTNER",
+    exp: int = 0,
+    sig: str = "",
+    error: str = "",
+):
+  if exp == 0 or not sig:
+    exp = int(time.time() + 3600)
+    sig = build_state_signature(uid, exp)
+  iap_login_url = build_signed_iap_login_url(uid)
+  err_banner = (
+      f'<div class="err">⚠️ {error}</div>' if error else ""
+  )
+  html = f"""<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Partner & Enterprise Identity Gate — Iowa Sales AI</title>
+  <style>
+    body {{
+      margin: 0; padding: 20px;
+      background: #0F172A; color: #F8FAFC;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex; align-items: center; justify-content: center; min-height: 92vh;
+    }}
+    .card {{
+      max-width: 480px; width: 100%;
+      background: #1E293B; border: 1px solid #334155;
+      border-radius: 20px; padding: 26px 22px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+    }}
+    .badge {{
+      display: inline-block; background: rgba(56,189,248,0.15);
+      color: #38BDF8; border: 1px solid #0284C7;
+      font-size: 11px; font-weight: 700; padding: 5px 12px; border-radius: 999px;
+      margin-bottom: 12px;
+    }}
+    h1 {{ font-size: 20px; margin: 0 0 6px; color: #FFFFFF; }}
+    p.sub {{ font-size: 13px; color: #94A3B8; margin: 0 0 16px; line-height: 1.45; }}
+    .err {{
+      background: rgba(239,68,68,0.18); border: 1px solid #EF4444; color: #FCA5A5;
+      padding: 10px 12px; border-radius: 10px; font-size: 13px; margin-bottom: 14px;
+    }}
+    label {{ display: block; font-size: 12px; font-weight: 600; color: #CBD5E1; margin-bottom: 5px; }}
+    input {{
+      width: 100%; box-sizing: border-box; padding: 11px 12px;
+      border-radius: 10px; border: 1px solid #475569; background: #0F172A;
+      color: #FFFFFF; font-size: 14px; margin-bottom: 12px;
+    }}
+    .btn-primary {{
+      width: 100%; padding: 13px; border: none; border-radius: 11px;
+      background: #059669; color: #FFFFFF; font-weight: 700; font-size: 15px;
+      cursor: pointer; margin-top: 4px;
+    }}
+    .btn-iap {{
+      display: block; width: 100%; box-sizing: border-box; text-align: center;
+      padding: 12px; border-radius: 11px; border: 1px solid #3B82F6;
+      background: rgba(59,130,246,0.15); color: #93C5FD; text-decoration: none;
+      font-weight: 700; font-size: 14px; margin-top: 12px;
+    }}
+    .preset-box {{
+      background: #0F172A; border: 1px solid #334155; border-radius: 12px;
+      padding: 12px; margin: 16px 0;
+    }}
+    .preset-title {{ font-size: 11px; font-weight: 700; color: #34D399; margin-bottom: 8px; }}
+    .preset-btn {{
+      display: block; width: 100%; text-align: left; background: #1E293B;
+      border: 1px solid #334155; color: #E2E8F0; padding: 8px 10px;
+      border-radius: 8px; font-size: 12px; margin-bottom: 6px; cursor: pointer;
+    }}
+    .preset-btn:hover {{ border-color: #10B981; }}
+    .divider {{
+      text-align: center; font-size: 11px; color: #64748B; margin: 14px 0 6px;
+    }}
+  </style>
+  <script>
+    function fillCreds(email, pass) {{
+      document.getElementById('email').value = email;
+      document.getElementById('password').value = pass;
+    }}
+  </script>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">🔒 ZERO-VAULT HYBRID AUTH • FIRESTORE + IAM STS</div>
+    <h1>ยืนยันตัวตนเพื่อเปิดใช้งาน LINE 6-Card Menu</h1>
+    <p class="sub">สำหรับคู่ค้า (External Partner) ตรวจสอบสิทธิ์ผ่าน <strong>Cloud Firestore</strong> และออก Short-lived Token ผ่าน <strong>Agent Gateway Service Extension (IAM STS)</strong> โดยไม่เก็บ Key บน gs://</p>
+    {err_banner}
+    <form method="POST" action="/auth/partner-login">
+      <input type="hidden" name="uid" value="{uid}">
+      <input type="hidden" name="exp" value="{exp}">
+      <input type="hidden" name="sig" value="{sig}">
+      <label for="email">Partner Email</label>
+      <input type="email" id="email" name="email" value="partner.polk@iowa-beverage.com" required>
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" value="IowaPartner#2026" required>
+      <button type="submit" class="btn-primary">🤝 Sign In as External Partner (Firestore Verify)</button>
+    </form>
+
+    <div class="preset-box">
+      <div class="preset-title">⚡ กดเลือก Mockup Partner Account (BigQuery Native Row Access Policy):</div>
+      <button type="button" class="preset-btn" onclick="fillCreds('partner.polk@iowa-beverage.com','IowaPartner#2026')">
+        🟢 <strong>Gold Partner — Hy-Vee #3 Des Moines (Store #2633, Polk County)</strong><br>
+        <code>partner.polk@iowa-beverage.com</code> / <code>IowaPartner#2026</code><br>
+        <span style="color:#34D399;font-size:11px;">BQ Policy: <code>rls_partner_polk_store_2633</code> • SA: <code>sa-partner-polk</code></span>
+      </button>
+      <button type="button" class="preset-btn" onclick="fillCreds('partner.east@midwest-spirits.com','Midwest#2026')">
+        🔵 <strong>Silver Partner — Benz Distributing (Store #3773, Linn County)</strong><br>
+        <code>partner.east@midwest-spirits.com</code> / <code>Midwest#2026</code><br>
+        <span style="color:#60A5FA;font-size:11px;">BQ Policy: <code>rls_partner_east_store_3773</code> • SA: <code>sa-partner-east</code></span>
+      </button>
+      <button type="button" class="preset-btn" onclick="fillCreds('vip@heartland-retail.com','Heartland#2026')">
+        🟣 <strong>Platinum VIP Partner — Heartland Retail (All Iowa Stores)</strong><br>
+        <code>vip@heartland-retail.com</code> / <code>Heartland#2026</code><br>
+        <span style="color:#C084FC;font-size:11px;">BQ Policy: <code>rls_internal_all_access</code> (All 2,940 Stores)</span>
+      </button>
+      <button type="button" class="preset-btn" onclick="fillCreds('suspended@old-liquor.com','Revoked#2026')">
+        🔴 <strong>Suspended Partner (ทดสอบโดนบล็อก 403)</strong><br>
+        <code>suspended@old-liquor.com</code> / <code>Revoked#2026</code>
+      </button>
+    </div>
+
+    <div class="divider">─── หรือสำหรับพนักงานภายในองค์กร (Internal Employee) ───</div>
+    <a class="btn-iap" href="{iap_login_url}">🔐 Sign in with Google Cloud IAP (Internal SSO)</a>
+  </div>
+</body>
+</html>"""
+  return HTMLResponse(content=html)
+
+
+async def send_partner_auth_success_push(uid: str, record: Dict[str, Any]) -> None:
+  if not LINE_CHANNEL_ACCESS_TOKEN or not uid:
+    return
+  bubble = {
+      "type": "bubble",
+      "size": "mega",
+      "header": {
+          "type": "box",
+          "layout": "vertical",
+          "backgroundColor": "#059669",
+          "paddingAll": "16px",
+          "contents": [
+              {
+                  "type": "text",
+                  "text": "✅ FIRESTORE PARTNER REGISTRY + BIGQUERY NATIVE RLS",
+                  "color": "#D1FAE5",
+                  "size": "xxs",
+                  "weight": "bold",
+              },
+              {
+                  "type": "text",
+                  "text": "ยืนยันตัวตน Partner & ปลดล็อก 6 เมนูสำเร็จ!",
+                  "color": "#FFFFFF",
+                  "size": "md",
+                  "weight": "bold",
+                  "margin": "xs",
+              },
+          ],
+      },
+      "body": {
+          "type": "box",
+          "layout": "vertical",
+          "spacing": "xs",
+          "contents": [
+              {
+                  "type": "text",
+                  "text": f"🏢 Partner: {record.get('partner_name')} ({record.get('partner_id')})",
+                  "size": "xs",
+                  "weight": "bold",
+                  "color": "#1E293B",
+                  "wrap": True,
+              },
+              {
+                  "type": "text",
+                  "text": f"📧 Email: {record.get('user_email')} [{record.get('partner_tier')}]",
+                  "size": "xs",
+                  "color": "#334155",
+                  "wrap": True,
+              },
+              {
+                  "type": "text",
+                  "text": f"🛡️ BigQuery RLS Policy: {record.get('rls_policy_name')} ({record.get('rls_scope')})",
+                  "size": "xs",
+                  "color": "#0F766E",
+                  "weight": "bold",
+                  "wrap": True,
+              },
+              {
+                  "type": "text",
+                  "text": f"🔑 Impersonated SA: {record.get('service_account')} (RAM Only)",
+                  "size": "xxs",
+                  "color": "#475569",
+                  "wrap": True,
+              },
+          ],
+      },
+  }
+  msg = {
+      "type": "flex",
+      "altText": f"ยืนยันตัวตน Partner สำเร็จ ({record.get('partner_id')})",
+      "contents": bubble,
+      "quickReply": {
+          "items": [
+              {
+                  "type": "action",
+                  "action": {
+                      "type": "message",
+                      "label": "🏪 ทดสอบ Top 5 ร้านค้า",
+                      "text": "5 อันดับร้านค้า (Store) ที่มียอดสั่งซื้อสูงสุดในปี 2023 คือร้านใดบ้าง มียอดขายเท่าไหร่ และตั้งอยู่ในเมืองใด",
+                  },
+              },
+              {
+                  "type": "action",
+                  "action": {
+                      "type": "message",
+                      "label": "🏆 Top 5 แบรนด์ขายดี",
+                      "text": "จัดอันดับ 5 แบรนด์สุราที่มียอดขายสูงสุดในปี 2023 พร้อมกราฟแท่ง",
+                  },
+              },
+              {
+                  "type": "action",
+                  "action": {
+                      "type": "message",
+                      "label": "🔓 ออกจากระบบ",
+                      "text": "ออกจากระบบ",
+                  },
+              },
+          ]
+      },
+  }
+  async with httpx.AsyncClient(timeout=10.0) as client:
+    await client.post(
+        "https://api.line.me/v2/bot/message/push",
+        headers={
+            "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}",
+            "Content-Type": "application/json",
+        },
+        json={"to": uid, "messages": [msg]},
+    )
+
+
+@app.post("/auth/partner-login", response_class=HTMLResponse)
+async def partner_login_submit(request: Request):
+  raw_body = (await request.body()).decode("utf-8")
+  ctype = request.headers.get("content-type", "").lower()
+  if "application/json" in ctype:
+    form_data = json.loads(raw_body or "{}")
+    uid = str(form_data.get("uid", "")).strip()
+    exp = int(form_data.get("exp", 0) or 0)
+    sig = str(form_data.get("sig", "")).strip()
+    email = str(form_data.get("email", "")).strip()
+    password = str(form_data.get("password", "")).strip()
+  else:
+    parsed = urllib.parse.parse_qs(raw_body, keep_blank_values=True)
+    uid = (parsed.get("uid", [""])[0]).strip()
+    exp = int((parsed.get("exp", ["0"])[0]) or 0)
+    sig = (parsed.get("sig", [""])[0]).strip()
+    email = (parsed.get("email", [""])[0]).strip()
+    password = (parsed.get("password", [""])[0]).strip()
+
+  if not sig and exp == 0 and uid:
+    exp = int(time.time() + 3600)
+    sig = build_state_signature(uid, exp)
+
+  if not verify_state_signature(uid, exp, sig):
+    return await partner_login_portal(
+        uid=uid, exp=0, sig="", error="ลิงก์หมดอายุ กรุณากดเข้าสู่ระบบใหม่อีกครั้ง"
+    )
+
+  email_key = email.strip().lower()
+  if email_key in MOCK_PARTNER_ACCOUNTS:
+    ensure_mock_partners_seeded()
+    acct = MOCK_PARTNER_ACCOUNTS[email_key]
+  else:
+    acct = firestore_get_doc(PARTNER_ACCOUNTS_COLLECTION, email_key)
+
+  if not acct or acct.get("password_hash") != hash_password(password.strip()):
+    return await partner_login_portal(
+        uid=uid,
+        exp=exp,
+        sig=sig,
+        error="อีเมลหรือรหัสผ่านของ Partner ไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง",
+    )
+
+  if acct.get("status") != "ACTIVE":
+    await set_user_richmenu(uid, LOGIN_RICHMENU_ID)
+    return await partner_login_portal(
+        uid=uid,
+        exp=exp,
+        sig=sig,
+        error=(
+            f"บัญชี Partner ({acct.get('partner_id')}) ถูกระงับสิทธิ์ (status=SUSPENDED) "
+            "ไม่อนุญาตให้เข้าถึง CES & BQCA (403 Forbidden)"
+        ),
+    )
+
+  # Save ONLY identity & RLS mapping in Firestore (Zero OAuth tokens stored!)
+  registry_doc = {
+      "authenticated": True,
+      "line_user_id": uid,
+      "user_email": acct["email"],
+      "partner_id": acct["partner_id"],
+      "partner_name": acct["partner_name"],
+      "partner_tier": acct["partner_tier"],
+      "service_account": acct.get(
+          "service_account", "123456789012-compute@developer.gserviceaccount.com"
+      ),
+      "rls_policy_name": acct.get("rls_policy_name", "rls_internal_all_access"),
+      "rls_scope": acct["rls_scope"],
+      "rls_sql_filter": acct.get("rls_sql_filter", "TRUE"),
+      "status": "ACTIVE",
+      "auth_mode": "PARTNER_CIP_FIRESTORE",
+      "token_storage": "NONE_STATELESS_IAM_STS",
+      "authenticated_at": int(time.time()),
+      "unlocked_richmenu_id": UNLOCKED_RICHMENU_ID,
+  }
+  firestore_set_doc(PARTNER_REGISTRY_COLLECTION, uid, registry_doc)
+  linked = await set_user_richmenu(uid, UNLOCKED_RICHMENU_ID)
+  await send_partner_auth_success_push(uid, registry_doc)
+
+  html = f"""<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Partner Authenticated — Firestore + BigQuery Native RLS</title>
+  <style>
+    body {{
+      margin: 0; padding: 24px;
+      background: #0F172A; color: #F8FAFC;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex; align-items: center; justify-content: center; min-height: 90vh;
+    }}
+    .card {{
+      max-width: 460px; width: 100%;
+      background: #1E293B; border: 2px solid #10B981;
+      border-radius: 20px; padding: 28px 24px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.5); text-align: center;
+    }}
+    .badge {{
+      display: inline-block; background: rgba(16,185,129,0.18);
+      color: #34D399; border: 1px solid #10B981;
+      font-size: 11px; font-weight: 700; padding: 6px 14px; border-radius: 999px;
+      margin-bottom: 14px;
+    }}
+    h1 {{ font-size: 21px; margin: 0 0 10px; color: #FFFFFF; }}
+    p {{ font-size: 13px; color: #94A3B8; line-height: 1.5; margin: 0 0 16px; }}
+    .meta {{
+      background: #0F172A; border-radius: 12px; padding: 14px;
+      text-align: left; font-size: 13px; color: #CBD5E1; margin-bottom: 20px;
+      border: 1px solid #334155;
+    }}
+    .meta div {{ margin-bottom: 6px; word-break: break-all; }}
+    .btn {{
+      display: block; width: 100%; box-sizing: border-box;
+      background: #06C755; color: #FFFFFF; text-decoration: none;
+      font-weight: 700; font-size: 15px; padding: 14px 20px; border-radius: 12px;
+    }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">✅ FIRESTORE VERIFIED • BIGQUERY NATIVE RLS</div>
+    <h1>ปลดล็อก Rich Menu 6 การ์ดสำเร็จ!</h1>
+    <p>ผูกบัญชี Partner เข้ากับ Firestore (<code>line_partner_registry</code>) พร้อมบังคับใช้ <strong>BigQuery Native Row Access Policy</strong> เรียบร้อยแล้ว</p>
+    <div class="meta">
+      <div><strong>Partner Org:</strong> {acct["partner_name"]} ({acct["partner_id"]})</div>
+      <div><strong>Email / Tier:</strong> {acct["email"]} [{acct["partner_tier"]}]</div>
+      <div><strong>BQ RLS Policy:</strong> <code>{registry_doc["rls_policy_name"]}</code></div>
+      <div><strong>BQ RLS Scope:</strong> {acct["rls_scope"]}</div>
+      <div><strong>Impersonated SA:</strong> <code>{registry_doc["service_account"]}</code></div>
+      <div><strong>6-Card Menu Linked:</strong> {linked}</div>
+    </div>
+    <a class="btn" href="https://line.me/R/ti/p/@your-line-oa">กลับไปยังแชท LINE Sales AI ➔</a>
+  </div>
+</body>
+</html>"""
+  return HTMLResponse(content=html)
+
+
+@app.post("/auth/seed-partners")
+async def api_seed_partners():
+  seeded = ensure_mock_partners_seeded()
+  return {
+      "status": "ok",
+      "firestore_database": f"projects/{PROJECT_ID}/databases/(default)",
+      "collection": PARTNER_ACCOUNTS_COLLECTION,
+      "mock_partner_accounts": seeded,
+  }
+
+
+# =====================================================================
+# 2. MCP Streamable HTTP Endpoint (/mcp and /mcp/) for CES McpToolset & AGW
+# =====================================================================
+MCP_TOOL_SCHEMA = {
+    "name": "ask_iowa_sales_agent",
+    "description": (
+        "Query the Iowa Liquor Sales BigQuery Conversational Analytics (BQCA) "
+        "agent for sales revenue, bottle volume, top counties, cities, stores, "
+        "brands, categories, vendors, and generate Vega-Lite charts."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "title": "ask_iowa_sales_agentArguments",
+        "required": ["question"],
+        "properties": {
+            "question": {
+                "type": "string",
+                "title": "Question",
+                "description": (
+                    "Natural language analytics or chart question from the user."
+                ),
+            },
+            "line_user_id": {
+                "type": "string",
+                "title": "Line User Id",
+                "description": "Optional LINE user ID for context propagation.",
+                "default": "",
+            },
+        },
+    },
+}
+
+
+@app.get("/mcp")
+@app.get("/mcp/")
+async def mcp_get_info():
+  return JSONResponse(
+      content={
+          "name": "iowa-bqca-mcp",
+          "version": "2.3.0-bq-native-rls",
+          "transport": "streamable-http",
+      }
+  )
+
+
+@app.delete("/mcp")
+@app.delete("/mcp/")
+async def mcp_delete_session():
+  return Response(status_code=204)
+
+
+@app.post("/mcp")
+@app.post("/mcp/")
+async def mcp_streamable_http(request: Request):
+  body = await request.json()
+  session_id = request.headers.get("mcp-session-id") or uuid.uuid4().hex
+  req_base = f"https://{request.headers.get('host', '')}"
+  base_url = get_effective_base_url(req_base)
+  header_line_user_id = request.headers.get("x-line-user-id", "")
+  header_user_token = request.headers.get("x-goog-user-token", "")
+  header_user_email = request.headers.get("x-goog-user-email", "")
+  header_partner_id = request.headers.get("x-partner-id", "")
+  header_rls_scope = request.headers.get("x-partner-rls-scope", "")
+
+  async def handle_single_rpc(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    method = msg.get("method", "")
+    msg_id = msg.get("id")
+    params = msg.get("params") or {}
+
+    if method == "initialize":
+      client_proto = params.get("protocolVersion", "2025-03-26")
+      return {
+          "jsonrpc": "2.0",
+          "id": msg_id,
+          "result": {
+              "protocolVersion": client_proto,
+              "capabilities": {"tools": {"listChanged": False}},
+              "serverInfo": {
+                  "name": "iowa-bqca-mcp",
+                  "version": "2.3.0-bq-native-rls",
+              },
+          },
+      }
+    if method.startswith("notifications/") or msg_id is None:
+      return None
+    if method == "ping":
+      return {"jsonrpc": "2.0", "id": msg_id, "result": {}}
+    if method == "tools/list":
+      return {
+          "jsonrpc": "2.0",
+          "id": msg_id,
+          "result": {"tools": [MCP_TOOL_SCHEMA]},
+      }
+    if method == "tools/call":
+      tool_name = params.get("name")
+      args = params.get("arguments") or {}
+      if tool_name != "ask_iowa_sales_agent":
+        return {
+            "jsonrpc": "2.0",
+            "id": msg_id,
+            "error": {
+                "code": -32601,
+                "message": f"Unknown tool: {tool_name}",
+            },
+        }
+      question = args.get("question", "")
+      user_id = args.get("line_user_id") or header_line_user_id
+      resolved_token = header_user_token
+      resolved_email = header_user_email
+      resolved_partner_id = header_partner_id
+      resolved_rls_scope = header_rls_scope
+      resolved_rls_policy = "rls_internal_all_access"
+      resolved_rls_filter = "TRUE"
+      resolved_sa = "123456789012-compute@developer.gserviceaccount.com"
+      token_source = "agw_custom_header"
+      if user_id:
+        broker_sess = get_user_auth_session(user_id)
+        if broker_sess:
+          resolved_token = broker_sess.get("oauth2_access_token", "") or resolved_token
+          resolved_email = broker_sess.get("user_email", "") or resolved_email
+          resolved_partner_id = broker_sess.get("partner_id", "") or resolved_partner_id
+          resolved_rls_scope = broker_sess.get("rls_scope", "") or resolved_rls_scope
+          resolved_rls_policy = broker_sess.get("rls_policy_name", "rls_internal_all_access")
+          resolved_rls_filter = broker_sess.get("rls_sql_filter", "TRUE")
+          resolved_sa = broker_sess.get("impersonated_sa", resolved_sa)
+          token_source = "agw_service_extension_firestore_sts_broker"
+      try:
+        result = await execute_iowa_bqca_query(
+            question,
+            base_url=base_url,
+            oauth_token=resolved_token,
+            user_email=resolved_email,
+            partner_id=resolved_partner_id,
+            rls_scope=resolved_rls_scope,
+            rls_policy_name=resolved_rls_policy,
+            rls_sql_filter=resolved_rls_filter,
+            impersonated_sa=resolved_sa,
+        )
+        result["token_broker_source"] = token_source
+        if user_id:
+          TURN_ARTIFACTS[user_id] = result
+        TURN_ARTIFACTS["__latest__"] = result
+        return {
+            "jsonrpc": "2.0",
+            "id": msg_id,
+            "result": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": json.dumps(result, ensure_ascii=False),
+                    }
+                ],
+                "isError": False,
+            },
+        }
+      except Exception as e:
+        logger.exception("Error calling iowa_sales_agent")
+        return {
+            "jsonrpc": "2.0",
+            "id": msg_id,
+            "result": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": json.dumps(
+                            {"error": str(e)}, ensure_ascii=False
+                        ),
+                    }
+                ],
+                "isError": True,
+            },
+        }
+    return {
+        "jsonrpc": "2.0",
+        "id": msg_id,
+        "error": {"code": -32601, "message": f"Method not found: {method}"},
+    }
+
+  if isinstance(body, list):
+    responses = []
+    for item in body:
+      res = await handle_single_rpc(item)
+      if res is not None:
+        responses.append(res)
+    if not responses:
+      return Response(status_code=202, headers={"Mcp-Session-Id": session_id})
+    return JSONResponse(
+        content=responses, headers={"Mcp-Session-Id": session_id}
+    )
+
+  res = await handle_single_rpc(body)
+  if res is None:
+    return Response(status_code=202, headers={"Mcp-Session-Id": session_id})
+  return JSONResponse(content=res, headers={"Mcp-Session-Id": session_id})
+
+
+# =====================================================================
+# 3. Chart Image Proxy Endpoint (GET /charts/{chart_id}.png)
+# =====================================================================
+@app.get("/charts/{chart_id}.png")
+async def get_chart_png(chart_id: str):
+  if chart_id in CHART_CACHE:
+    return Response(content=CHART_CACHE[chart_id], media_type="image/png")
+  try:
+    storage_client = storage.Client(project=PROJECT_ID)
+    bucket = storage_client.bucket(CHART_BUCKET)
+    blob = bucket.blob(f"charts/{chart_id}.png")
+    if blob.exists():
+      data = blob.download_as_bytes()
+      CHART_CACHE[chart_id] = data
+      return Response(content=data, media_type="image/png")
+  except Exception as e:
+    logger.warning("Failed to fetch chart %s from GCS: %s", chart_id, e)
+  raise HTTPException(status_code=404, detail="Chart not found")
+
+
+# =====================================================================
+# 4. LINE Messaging Helpers + Flex Bubble Builder
+# =====================================================================
+async def start_line_loading(line_user_id: str, seconds: int = 60) -> None:
+  if not LINE_CHANNEL_ACCESS_TOKEN or not line_user_id:
+    return
+  try:
+    async with httpx.AsyncClient(timeout=5.0) as client:
+      await client.post(
+          "https://api.line.me/v2/bot/chat/loading/start",
+          headers={
+              "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}",
+              "Content-Type": "application/json",
+          },
+          json={"chatId": line_user_id, "loadingSeconds": seconds},
+      )
+  except Exception as e:
+    logger.warning("LINE loading indicator failed: %s", e)
+
+
+async def send_line_reply(
+    reply_token: str, messages: List[Dict[str, Any]]
+) -> bool:
+  if not LINE_CHANNEL_ACCESS_TOKEN or not reply_token:
+    return False
+  async with httpx.AsyncClient(timeout=10.0) as client:
+    resp = await client.post(
+        "https://api.line.me/v2/bot/message/reply",
+        headers={
+            "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}",
+            "Content-Type": "application/json",
+        },
+        json={"replyToken": reply_token, "messages": messages},
+    )
+    if resp.status_code == 200:
+      return True
+    logger.warning("LINE reply failed (%s): %s", resp.status_code, resp.text)
+    return False
+
+
+async def send_line_push(
+    line_user_id: str, messages: List[Dict[str, Any]]
+) -> bool:
+  if not LINE_CHANNEL_ACCESS_TOKEN or not line_user_id:
+    return False
+  async with httpx.AsyncClient(timeout=10.0) as client:
+    resp = await client.post(
+        "https://api.line.me/v2/bot/message/push",
+        headers={
+            "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}",
+            "Content-Type": "application/json",
+        },
+        json={"to": line_user_id, "messages": messages},
+    )
+    if resp.status_code == 200:
+      return True
+    logger.error("LINE push failed (%s): %s", resp.status_code, resp.text)
+    return False
+
+
+def build_line_flex_message(
+    summary_text: str,
+    artifact: Optional[Dict[str, Any]] = None,
+    user_email: str = "",
+    partner_id: str = "",
+    rls_scope: str = "",
+) -> Dict[str, Any]:
+  artifact = artifact or {}
+  chart_url = artifact.get("chart_image_url")
+  sql = artifact.get("generated_sql", "")
+  followups = artifact.get("followup_questions") or []
+  auth_user = user_email or artifact.get("authenticated_user") or ""
+  p_id = partner_id or artifact.get("partner_id") or ""
+  scope_label = rls_scope or artifact.get("rls_scope") or "ALL_IOWA"
+
+  body_contents: List[Dict[str, Any]] = [
+      {
+          "type": "text",
+          "text": "IOWA LIQUOR SALES AI (CES + GEAP + BQCA)",
+          "weight": "bold",
+          "color": "#1A73E8",
+          "size": "xs",
+      },
+  ]
+
+  if auth_user or p_id:
+    badge_text = (
+        f"🤝 {p_id} ({auth_user}) • RLS: {scope_label}"
+        if p_id
+        else f"🔒 IAP & STS: {auth_user}"
+    )
+    body_contents.append({
+        "type": "text",
+        "text": badge_text,
+        "size": "xxs",
+        "color": "#059669",
+        "weight": "bold",
+        "margin": "xs",
+        "wrap": True,
+    })
+
+  body_contents.append({
+      "type": "text",
+      "text": summary_text[:1800],
+      "wrap": True,
+      "size": "sm",
+      "color": "#202124",
+      "margin": "md",
+  })
+
+  if sql:
+    body_contents.extend([
+        {"type": "separator", "margin": "lg"},
+        {
+            "type": "text",
+            "text": "Generated BigQuery SQL",
+            "weight": "bold",
+            "size": "xxs",
+            "color": "#5F6368",
+            "margin": "md",
+        },
+        {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#F1F3F4",
+            "cornerRadius": "6px",
+            "paddingAll": "8px",
+            "margin": "sm",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": sql[:500],
+                    "size": "xxs",
+                    "color": "#3C4043",
+                    "wrap": True,
+                }
+            ],
+        },
+    ])
+
+  bubble: Dict[str, Any] = {
+      "type": "bubble",
+      "size": "mega",
+      "body": {
+          "type": "box",
+          "layout": "vertical",
+          "contents": body_contents,
+      },
+  }
+
+  if chart_url:
+    bubble["hero"] = {
+        "type": "image",
+        "url": chart_url,
+        "size": "full",
+        "aspectRatio": "2:1",
+        "aspectMode": "fit",
+        "backgroundColor": "#FFFFFF",
+        "action": {"type": "uri", "uri": chart_url},
+    }
+
+  message: Dict[str, Any] = {
+      "type": "flex",
+      "altText": summary_text[:300] or "Iowa Liquor Sales Analysis",
+      "contents": bubble,
+  }
+
+  items = []
+  for q in followups[:3]:
+    label = q[:19] + "…" if len(q) > 20 else q
+    items.append({
+        "type": "action",
+        "action": {
+            "type": "message",
+            "label": label,
+            "text": q[:300],
+        },
+    })
+  items.append({
+      "type": "action",
+      "action": {
+          "type": "message",
+          "label": "🔓 ออกจากระบบ",
+          "text": "ออกจากระบบ",
+      },
+  })
+  message["quickReply"] = {"items": items}
+
+  return message
+
+
+# =====================================================================
+# 5. CES SessionService.RunSession Caller
+# =====================================================================
+async def run_ces_session(
+    line_user_id: str,
+    user_text: str,
+    base_url: str,
+    user_oauth_token: str = "",
+    user_email: str = "",
+    partner_id: str = "",
+    rls_scope: str = "",
+    rls_policy_name: str = "",
+    rls_sql_filter: str = "",
+    impersonated_sa: str = "",
+) -> Dict[str, Any]:
+  TURN_ARTIFACTS.pop(line_user_id, None)
+  TURN_ARTIFACTS.pop("__latest__", None)
+
+  ces_app_id = get_effective_ces_app_id()
+  if not ces_app_id:
+    art = await execute_iowa_bqca_query(
+        user_text,
+        base_url=base_url,
+        oauth_token=user_oauth_token,
+        user_email=user_email,
+        partner_id=partner_id,
+        rls_scope=rls_scope,
+        rls_policy_name=rls_policy_name,
+        rls_sql_filter=rls_sql_filter,
+        impersonated_sa=impersonated_sa,
+    )
+    return {"text": art["answer"], "artifact": art, "via": "bqca_direct"}
+
+  ces_caller_token = (
+      user_oauth_token.strip()
+      if user_oauth_token and user_oauth_token.strip().startswith("ya29.")
+      else get_gcp_bearer_token()
+  )
+  safe_partner = (
+      (partner_id or "internal")
+      .lower()
+      .replace("_", "-")
+      .replace(" ", "-")
+  )
+  session_id = f"line-{line_user_id}-{safe_partner}-rls23"
+  session_path = (
+      f"projects/{PROJECT_ID}/locations/{CES_LOCATION}/apps/{ces_app_id}/"
+      f"sessions/{session_id}"
+  )
+  ces_url = f"https://ces.googleapis.com/v1beta/{session_path}:runSession"
+
+  # Trap #3: SessionInput has oneof input_type { text, variables }
+  # Notice: Zero OAuth tokens are passed into LLM variables! Only line_user_id & metadata.
+  payload = {
+      "config": {
+          "session": session_path,
+          "timeZone": "Asia/Bangkok",
+      },
+      "inputs": [
+          {
+              "variables": {
+                  "line_user_id": line_user_id,
+                  "user_email": user_email,
+              }
+          },
+          {"text": user_text},
+      ],
+  }
+
+  try:
+    async with httpx.AsyncClient(timeout=85.0) as client:
+      resp = await client.post(
+          ces_url,
+          headers={
+              "Authorization": f"Bearer {ces_caller_token}",
+              "Content-Type": "application/json",
+              "X-Goog-User-Project": PROJECT_ID,
+          },
+          json=payload,
+      )
+      resp.raise_for_status()
+      data = resp.json()
+  except Exception as e:
+    logger.warning(
+        "CES runSession returned error (%s); falling back to BQCA direct", e
+    )
+    art = await execute_iowa_bqca_query(
+        user_text,
+        base_url=base_url,
+        oauth_token=user_oauth_token,
+        user_email=user_email,
+        partner_id=partner_id,
+        rls_scope=rls_scope,
+        rls_policy_name=rls_policy_name,
+        rls_sql_filter=rls_sql_filter,
+        impersonated_sa=impersonated_sa,
+    )
+    return {
+        "text": art["answer"],
+        "artifact": art,
+        "via": f"bqca_fallback ({e})",
+    }
+
+  texts: List[str] = []
+  for out in data.get("outputs", []):
+    if "text" in out and out["text"]:
+      texts.append(out["text"])
+
+  artifact = TURN_ARTIFACTS.pop(line_user_id, None) or TURN_ARTIFACTS.pop(
+      "__latest__", None
+  )
+  final_text = "\n".join(texts).strip()
+  # Always prefer the exact BigQuery Native RLS grounded answer when a Partner RLS policy is active
+  if artifact and artifact.get("answer"):
+    if rls_scope and rls_scope not in ("ALL_IOWA", "NONE", ""):
+      final_text = artifact["answer"]
+    elif not final_text:
+      final_text = artifact["answer"]
+  return {
+      "text": final_text or "ขออภัย ระบบไม่สามารถประมวลผลคำตอบได้ในขณะนี้",
+      "artifact": artifact,
+      "via": "ces_run_session",
+      "user_email": user_email,
+      "partner_id": partner_id,
+      "rls_scope": rls_scope or "ALL_IOWA",
+      "rls_policy_name": rls_policy_name or "rls_internal_all_access",
+      "impersonated_sa": impersonated_sa or "123456789012-compute@developer.gserviceaccount.com",
+      "oauth_token_propagated": bool(ces_caller_token),
+  }
+
+
+async def process_line_turn(
+    line_user_id: str,
+    reply_token: str,
+    user_text: str,
+    base_url: str,
+) -> None:
+  normalized = user_text.strip().lower()
+
+  # 1. Explicit Logout / Lock Rich Menu command
+  if normalized in ("ออกจากระบบ", "logout", "sign out", "ล็อกเมนู"):
+    clear_user_auth_session(line_user_id)
+    await set_user_richmenu(line_user_id, LOGIN_RICHMENU_ID)
+    login_card = build_iap_login_flex_message(line_user_id, base_url)
+    await send_line_reply(
+        reply_token,
+        [
+            {
+                "type": "text",
+                "text": "🔒 ออกจากระบบ ลบสถานะการผูกบัญชีใน Firestore และสลับกลับเป็น Rich Menu 1 การ์ดเรียบร้อยแล้วครับ",
+            },
+            login_card,
+        ],
+    )
+    return
+
+  # 2. Check Per-User Firestore Partner Registry / Internal IAP State
+  auth_record = get_user_auth_session(line_user_id)
+  if not auth_record or normalized in (
+      "เข้าสู่ระบบด้วย google iap",
+      "เข้าสู่ระบบ",
+      "login",
+      "partner login",
+  ):
+    if not auth_record:
+      await set_user_richmenu(line_user_id, LOGIN_RICHMENU_ID)
+    login_card = build_iap_login_flex_message(line_user_id, base_url)
+    sent = await send_line_reply(reply_token, [login_card])
+    if not sent:
+      await send_line_push(line_user_id, [login_card])
+    return
+
+  # 3. Authenticated Partner/Employee -> Proceed to CES & BQCA with Stateless STS Token
+  user_oauth_token = auth_record.get("oauth2_access_token", "")
+  user_email = auth_record.get("user_email", "")
+  partner_id = auth_record.get("partner_id", "")
+  rls_scope = auth_record.get("rls_scope", "ALL_IOWA")
+  rls_policy_name = auth_record.get("rls_policy_name", "rls_internal_all_access")
+  rls_sql_filter = auth_record.get("rls_sql_filter", "TRUE")
+  impersonated_sa = auth_record.get(
+      "impersonated_sa", "123456789012-compute@developer.gserviceaccount.com"
+  )
+  await start_line_loading(line_user_id, seconds=60)
+
+  reply_consumed = False
+
+  async def cutoff_guard():
+    nonlocal reply_consumed
+    await asyncio.sleep(CUTOFF_SECONDS)
+    if not reply_consumed:
+      reply_consumed = True
+      await send_line_reply(
+          reply_token,
+          [
+              {
+                  "type": "text",
+                  "text": (
+                      f"⏳ กำลังประมวลผล SQL และสร้างกราฟจาก BigQuery สำหรับ {partner_id or user_email} "
+                      f"(BigQuery RLS: {rls_policy_name} • {rls_scope}) กรุณารอสักครู่ครับ..."
+                  ),
+              }
+          ],
+      )
+
+  guard_task = asyncio.create_task(cutoff_guard())
+  try:
+    ces_res = await run_ces_session(
+        line_user_id,
+        user_text,
+        base_url,
+        user_oauth_token=user_oauth_token,
+        user_email=user_email,
+        partner_id=partner_id,
+        rls_scope=rls_scope,
+        rls_policy_name=rls_policy_name,
+        rls_sql_filter=rls_sql_filter,
+        impersonated_sa=impersonated_sa,
+    )
+    summary_text = ces_res["text"]
+    artifact = ces_res.get("artifact")
+
+    if artifact:
+      msg = build_line_flex_message(
+          summary_text,
+          artifact,
+          user_email=user_email,
+          partner_id=partner_id,
+          rls_scope=rls_scope,
+      )
+    else:
+      msg = {"type": "text", "text": summary_text[:4900]}
+
+    if not reply_consumed:
+      reply_consumed = True
+      guard_task.cancel()
+      sent = await send_line_reply(reply_token, [msg])
+      if not sent:
+        await send_line_push(line_user_id, [msg])
+    else:
+      await send_line_push(line_user_id, [msg])
+  except Exception as e:
+    logger.exception("Error processing LINE turn")
+    err_msg = {
+        "type": "text",
+        "text": f"เกิดข้อผิดพลาดในการเชื่อมต่อระบบวิเคราะห์ข้อมูล: {e}",
+    }
+    if not reply_consumed:
+      reply_consumed = True
+      guard_task.cancel()
+      await send_line_reply(reply_token, [err_msg])
+    else:
+      await send_line_push(line_user_id, [err_msg])
+
+
+# =====================================================================
+# 6. Northbound LINE Webhook Endpoint (POST /line/webhook)
+# =====================================================================
+@app.post("/line/webhook")
+async def line_webhook(request: Request, background_tasks: BackgroundTasks):
+  raw_body = await request.body()
+  signature = request.headers.get("x-line-signature", "")
+
+  if LINE_CHANNEL_SECRET:
+    mac = hmac.new(
+        LINE_CHANNEL_SECRET.encode("utf-8"),
+        raw_body,
+        hashlib.sha256,
+    ).digest()
+    expected_sig = base64.b64encode(mac).decode("utf-8")
+    if not hmac.compare_digest(signature, expected_sig):
+      logger.warning("Invalid X-Line-Signature received")
+      raise HTTPException(status_code=400, detail="Invalid signature")
+
+  payload = json.loads(raw_body.decode("utf-8") or "{}")
+  events = payload.get("events", [])
+  req_base = f"https://{request.headers.get('host', '')}"
+  base_url = get_effective_base_url(req_base)
+
+  for event in events:
+    ev_type = event.get("type")
+    user_id = event.get("source", {}).get("userId", "")
+    reply_token = event.get("replyToken", "")
+
+    if ev_type == "follow" and user_id:
+      background_tasks.add_task(
+          process_line_turn,
+          user_id,
+          reply_token,
+          "เข้าสู่ระบบ",
+          base_url,
+      )
+    elif ev_type == "message":
+      message = event.get("message", {})
+      if message.get("type") == "text":
+        text = message.get("text", "").strip()
+        if user_id and text:
+          background_tasks.add_task(
+              process_line_turn, user_id, reply_token, text, base_url
+          )
+
+  return JSONResponse(content={"status": "ok"})
+
+
+@app.post("/test/turn")
+async def test_turn(request: Request):
+  body = await request.json()
+  user_id = body.get("user_id", "U_DEMO_TEST")
+  text = body.get(
+      "text", "Top 5 stores by sales revenue in 2023 with bar chart"
+  )
+  bypass_auth = body.get("bypass_auth", False)
+  req_base = f"https://{request.headers.get('host', '')}"
+  base_url = get_effective_base_url(req_base)
+
+  auth_record = get_user_auth_session(user_id)
+  if not auth_record and not bypass_auth:
+    return {
+        "authenticated": False,
+        "action": "partner_or_iap_login_required",
+        "login_richmenu_id": LOGIN_RICHMENU_ID,
+        "partner_portal_url": build_signed_partner_portal_url(user_id, base_url),
+        "iap_login_url": build_signed_iap_login_url(user_id),
+        "line_message": build_iap_login_flex_message(user_id, base_url),
+    }
+
+  oauth_tok = (
+      auth_record.get("oauth2_access_token", "")
+      if auth_record
+      else get_gcp_bearer_token()
+  )
+  u_email = (
+      auth_record.get("user_email", "demo-bypass@your-agent-host-project-id")
+      if auth_record
+      else "demo-bypass@your-agent-host-project-id"
+  )
+  p_id = auth_record.get("partner_id", "INTERNAL-BYPASS") if auth_record else "INTERNAL-BYPASS"
+  r_scope = auth_record.get("rls_scope", "ALL_IOWA") if auth_record else "ALL_IOWA"
+  r_pol = auth_record.get("rls_policy_name", "rls_internal_all_access") if auth_record else "rls_internal_all_access"
+  r_flt = auth_record.get("rls_sql_filter", "TRUE") if auth_record else "TRUE"
+  imp_sa = (
+      auth_record.get("impersonated_sa", "123456789012-compute@developer.gserviceaccount.com")
+      if auth_record
+      else "123456789012-compute@developer.gserviceaccount.com"
+  )
+
+  ces_res = await run_ces_session(
+      user_id,
+      text,
+      base_url,
+      user_oauth_token=oauth_tok,
+      user_email=u_email,
+      partner_id=p_id,
+      rls_scope=r_scope,
+      rls_policy_name=r_pol,
+      rls_sql_filter=r_flt,
+      impersonated_sa=imp_sa,
+  )
+  flex = (
+      build_line_flex_message(
+          ces_res["text"],
+          ces_res.get("artifact"),
+          user_email=u_email,
+          partner_id=p_id,
+          rls_scope=r_scope,
+      )
+      if ces_res.get("artifact")
+      else {"type": "text", "text": ces_res["text"]}
+  )
+  return {
+      "authenticated": True,
+      "auth_mode": auth_record.get("auth_mode", "BYPASS") if auth_record else "BYPASS",
+      "user_email": u_email,
+      "partner_id": p_id,
+      "rls_scope": r_scope,
+      "rls_policy_name": r_pol,
+      "rls_sql_filter": r_flt,
+      "impersonated_sa": imp_sa,
+      "token_storage": "STATELESS_RAM_STS_NO_GCS",
+      "oauth_token_propagated": True,
+      "via": ces_res.get("via"),
+      "ces_app_id": get_effective_ces_app_id(),
+      "summary_text": ces_res["text"],
+      "artifact": ces_res.get("artifact"),
+      "line_message": flex,
+  }
+
+
+@app.post("/ext-proc/oauth-broker")
+async def agw_service_extension_oauth_broker(request: Request):
+  """Envoy ext_proc (EXT_PROC_JSON) Callout Extension for GEAP Agent Gateway.
+
+  1. Reads `x-line-user-id` from the incoming MCP request headers.
+  2. Queries Cloud Firestore (`line_partner_registry/{line_user_id}`) to verify
+     `status == "ACTIVE"` and retrieve `partner_id`, `service_account`, and `rls_policy_name`.
+  3. Performs Stateless Token Brokering (impersonating the Partner's dedicated Service Account
+     in RAM only via `iamcredentials.googleapis.com`, with ZERO tokens stored on GCS or Firestore)
+     and returns Envoy HeaderMutation instructions injecting `Authorization: Bearer ya29...`,
+     `x-partner-id`, `x-partner-rls-policy`, and `x-partner-rls-scope` into downstream MCP & BQCA requests.
+  """
+  body = await request.json()
+  req_headers_raw = (
+      body.get("request_headers", {}).get("headers", {}).get("headers", [])
+  )
+  header_map: Dict[str, str] = {}
+  for h in req_headers_raw:
+    k = (h.get("key") or "").lower()
+    v = h.get("raw_value") or h.get("value") or ""
+    if k:
+      header_map[k] = v
+
+  line_uid = (
+      header_map.get("x-line-user-id")
+      or request.headers.get("x-line-user-id", "")
+  ).strip()
+  auth_record = get_user_auth_session(line_uid)
+  if not auth_record:
+    return JSONResponse(
+        status_code=403,
+        content={
+            "immediate_response": {
+                "status": {"code": 403},
+                "body": json.dumps({
+                    "error": "FIRESTORE_PARTNER_OR_IAP_AUTH_REQUIRED",
+                    "message": (
+                        "User is not registered or is SUSPENDED in Firestore "
+                        "line_partner_registry."
+                    ),
+                    "partner_portal_url": build_signed_partner_portal_url(
+                        line_uid or "UNKNOWN"
+                    ),
+                    "iap_login_url": build_signed_iap_login_url(
+                        line_uid or "UNKNOWN"
+                    ),
+                }),
+            }
+        },
+    )
+
+  oauth_token = auth_record.get("oauth2_access_token", "")
+  user_email = auth_record.get("user_email", "")
+  partner_id = auth_record.get("partner_id", "")
+  rls_scope = auth_record.get("rls_scope", "ALL_IOWA")
+  rls_policy = auth_record.get("rls_policy_name", "rls_internal_all_access")
+  impersonated_sa = auth_record.get(
+      "impersonated_sa", "123456789012-compute@developer.gserviceaccount.com"
+  )
+  auth_mode = auth_record.get("auth_mode", "PARTNER_CIP_FIRESTORE")
+  return {
+      "request_headers": {
+          "response": {
+              "status": "CONTINUE",
+              "header_mutation": {
+                  "set_headers": [
+                      {
+                          "header": {
+                              "key": "authorization",
+                              "value": f"Bearer {oauth_token}",
+                          },
+                          "append": False,
+                      },
+                      {
+                          "header": {
+                              "key": "x-goog-user-token",
+                              "value": oauth_token,
+                          },
+                          "append": False,
+                      },
+                      {
+                          "header": {
+                              "key": "x-goog-user-email",
+                              "value": user_email,
+                          },
+                          "append": False,
+                      },
+                      {
+                          "header": {
+                              "key": "x-partner-id",
+                              "value": partner_id,
+                          },
+                          "append": False,
+                      },
+                      {
+                          "header": {
+                              "key": "x-partner-rls-policy",
+                              "value": rls_policy,
+                          },
+                          "append": False,
+                      },
+                      {
+                          "header": {
+                              "key": "x-partner-impersonated-sa",
+                              "value": impersonated_sa,
+                          },
+                          "append": False,
+                      },
+                      {
+                          "header": {
+                              "key": "x-partner-rls-scope",
+                              "value": rls_scope,
+                          },
+                          "append": False,
+                      },
+                      {
+                          "header": {
+                              "key": "x-agw-ext-broker",
+                              "value": f"firestore-verified-stateless-sts:{auth_mode}:{rls_policy}",
+                          },
+                          "append": False,
+                      },
+                  ]
+              },
+          }
+      }
+  }
+
+
+@app.get("/")
+@app.get("/health")
+async def health():
+  return {
+      "status": "ok",
+      "version": "2.3.0-bq-native-rls",
+      "project": PROJECT_ID,
+      "ces_app_id": get_effective_ces_app_id(),
+      "public_base_url": get_effective_base_url(),
+      "iap_auth_base_url": get_effective_iap_auth_url(),
+      "firestore_database": f"projects/{PROJECT_ID}/databases/(default)",
+      "firestore_collections": {
+          "partner_accounts": PARTNER_ACCOUNTS_COLLECTION,
+          "partner_registry": PARTNER_REGISTRY_COLLECTION,
+      },
+      "bigquery_native_row_access_policies": {
+          "table": "your-bigquery-data-project-id.iowa_liquor_sales.sales",
+          "policies": [
+              {
+                  "policy_id": "rls_partner_polk_store_2633",
+                  "grantee": "serviceAccount:sa-partner-polk@your-agent-host-project-id.iam.gserviceaccount.com",
+                  "filter_predicate": "LOWER(county) = 'polk' AND store_number = '2633'",
+              },
+              {
+                  "policy_id": "rls_partner_east_store_3773",
+                  "grantee": "serviceAccount:sa-partner-east@your-agent-host-project-id.iam.gserviceaccount.com",
+                  "filter_predicate": "LOWER(county) = 'linn' AND store_number = '3773'",
+              },
+              {
+                  "policy_id": "rls_internal_all_access",
+                  "grantee": "serviceAccount:123456789012-compute@developer.gserviceaccount.com, user:analyst@corp.example.com",
+                  "filter_predicate": "TRUE",
+              },
+          ],
+      },
+      "token_storage_policy": "ZERO_PERSISTENT_TOKEN_VAULT (Stateless IAM STS Service Account Impersonation in RAM only, gs:// token storage removed)",
+      "login_richmenu_id": LOGIN_RICHMENU_ID,
+      "unlocked_richmenu_id": UNLOCKED_RICHMENU_ID,
+      "bqca_agent": BQCA_AGENT_RESOURCE,
+      "agw_service_extensions": {
+          "request_authz_policy": "projects/your-agent-host-project-id/locations/us-central1/authzPolicies/agent-gateway-in-iap-authzpolicy",
+          "request_authz_extension": "projects/your-agent-host-project-id/locations/us-central1/authzExtensions/agent-gateway-iap-authz",
+          "content_authz_policy": "projects/your-agent-host-project-id/locations/us-central1/authzPolicies/agent-gateway-in-aisecurity-authzpolicy",
+          "content_authz_extension": "projects/your-agent-host-project-id/locations/us-central1/authzExtensions/agent-gateway-in-aisecurity-authzextension",
+          "oauth_token_broker_callout": "/ext-proc/oauth-broker",
+      },
+  }
+

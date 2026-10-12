@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@500;700;800&family=Inter:wght@600;700;800&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 2500px;
+    height: 843px;
+    overflow: hidden;
+    background: linear-gradient(135deg, #0F172A 0%, #1E293B 55%, #0F172A 100%);
+    font-family: 'Inter', 'Noto Sans Thai', sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 44px 56px;
+  }
+  .card {
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(180deg, rgba(30, 41, 59, 0.96) 0%, rgba(15, 23, 42, 0.98) 100%);
+    border: 5px solid #38BDF8;
+    border-radius: 48px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), inset 0 0 40px rgba(56, 189, 248, 0.12);
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 88px;
+    position: relative;
+  }
+  .left-group {
+    display: flex;
+    align-items: center;
+    gap: 56px;
+  }
+  .shield-box {
+    width: 220px;
+    height: 220px;
+    border-radius: 48px;
+    background: linear-gradient(135deg, #1A73E8 0%, #0284C7 100%);
+    border: 4px solid #7DD3FC;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 16px 40px rgba(26, 115, 232, 0.45);
+    flex-shrink: 0;
+  }
+  .text-col {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+    background: rgba(56, 189, 248, 0.15);
+    border: 2px solid #38BDF8;
+    color: #38BDF8;
+    font-size: 28px;
+    font-weight: 800;
+    padding: 10px 28px;
+    border-radius: 999px;
+    width: fit-content;
+    letter-spacing: 1px;
+  }
+  .title {
+    font-size: 64px;
+    font-weight: 800;
+    color: #FFFFFF;
+    line-height: 1.18;
+  }
+  .subtitle {
+    font-size: 34px;
+    font-weight: 500;
+    color: #94A3B8;
+    line-height: 1.35;
+  }
+  .cta-btn {
+    background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+    border: 4px solid #6EE7B7;
+    border-radius: 36px;
+    padding: 42px 64px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    box-shadow: 0 18px 44px rgba(16, 185, 129, 0.4);
+    flex-shrink: 0;
+  }
+  .cta-main {
+    font-size: 46px;
+    font-weight: 800;
+    color: #FFFFFF;
+    white-space: nowrap;
+  }
+  .cta-sub {
+    font-size: 26px;
+    font-weight: 700;
+    color: #D1FAE5;
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="left-group">
+      <div class="shield-box">
+        <svg width="124" height="124" viewBox="0 0 24 24" fill="none">
+          <path d="M12 2L4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5l-8-3z" fill="#FFFFFF" fill-opacity="0.2" stroke="#FFFFFF" stroke-width="1.8"/>
+          <rect x="8.5" y="11" width="7" height="6" rx="1.2" fill="#FBBF24" stroke="#FFFFFF" stroke-width="1.4"/>
+          <path d="M10 11V9a2 2 0 114 0v2" stroke="#FFFFFF" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="text-col">
+        <div class="badge">🔒 GOOGLE CLOUD IAP  •  OAUTH 2.0 ZERO-TRUST GATE</div>
+        <div class="title">ยืนยันตัวตนด้วย Google ก่อนเริ่มใช้งาน</div>
+        <div class="subtitle">เข้าสู่ระบบผ่าน Cloud IAP เพื่อปลดล็อก Rich Menu 6 การ์ด และส่ง OAuth 2.0 Token ไปยัง CES &amp; BQCA</div>
+      </div>
+    </div>
+    <div class="cta-btn">
+      <div class="cta-main">แตะเพื่อ Login</div>
+      <div class="cta-sub">Sign in with Google ➔</div>
+    </div>
+  </div>
+</body>
+</html>

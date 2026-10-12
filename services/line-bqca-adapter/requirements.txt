@@ -1,0 +1,7 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+httpx==0.28.1
+google-auth==2.38.0
+google-cloud-storage==2.19.0
+vl-convert-python==1.7.0
+pydantic==2.10.6
