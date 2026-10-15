@@ -1,9 +1,12 @@
 import base64
 import hashlib
 import hmac
+import html
 import json
 import logging
 import os
+import re
+import secrets
 import time
 import urllib.parse
 from typing import Any, Dict
@@ -18,8 +21,8 @@ from fastapi.responses import HTMLResponse
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("iowa-line-iap-auth")
 
-PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "your-agent-host-project-id")
-PROJECT_NUMBER = os.environ.get("GCP_PROJECT_NUMBER", "123456789012")
+PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "<YOUR_GCP_PROJECT_ID>")
+PROJECT_NUMBER = os.environ.get("GCP_PROJECT_NUMBER", "<YOUR_PROJECT_NUMBER>")
 REGION = os.environ.get("GCP_REGION", "us-central1")
 SERVICE_NAME = os.environ.get("K_SERVICE", "iowa-line-iap-auth")
 
@@ -32,10 +35,10 @@ PARTNER_REGISTRY_COLLECTION = "line_partner_registry"
 LINE_CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "").strip()
 LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "").strip()
 UNLOCKED_RICHMENU_ID = os.environ.get(
-    "UNLOCKED_RICHMENU_ID", "richmenu-your-6card-analytics-menu-id"
+    "UNLOCKED_RICHMENU_ID", "richmenu-1150166c906fab07940f62a5df4f4f9e"
 )
 LOGIN_RICHMENU_ID = os.environ.get(
-    "LOGIN_RICHMENU_ID", "richmenu-your-1card-login-menu-id"
+    "LOGIN_RICHMENU_ID", "richmenu-eabdd88ffc5bf4e2ecf4707ed3fad403"
 )
 
 app = FastAPI(
@@ -44,19 +47,23 @@ app = FastAPI(
 )
 
 
+_EPHEMERAL_FALLBACK_SECRET = secrets.token_hex(32)
+_SAFE_UID_RE = re.compile(r"^[A-Za-z0-9_-]{3,64}$")
+
+
 def verify_state_signature(uid: str, exp: int, sig: str) -> bool:
-  if not uid or not sig or time.time() > exp:
+  if not uid or not sig or not _SAFE_UID_RE.fullmatch(uid) or time.time() > exp:
     return False
-  secret = LINE_CHANNEL_SECRET or "fallback-secret"
+  secret = LINE_CHANNEL_SECRET or _EPHEMERAL_FALLBACK_SECRET
   msg = f"{uid}:{exp}".encode("utf-8")
   expected = hmac.new(secret.encode("utf-8"), msg, hashlib.sha256).hexdigest()
   return hmac.compare_digest(sig, expected)
 
 
 def verify_iap_jwt(request: Request) -> Dict[str, str]:
-  iap_jwt = request.headers.get("x-goog-iap-jwt-assertion", "")
-  raw_email = request.headers.get("x-goog-authenticated-user-email", "")
-  raw_id = request.headers.get("x-goog-authenticated-user-id", "")
+  iap_jwt = request.headers.get("x-goog-iap-jwt-assertion", "").strip()
+  raw_email = request.headers.get("x-goog-authenticated-user-email", "").strip()
+  raw_id = request.headers.get("x-goog-authenticated-user-id", "").strip()
 
   email = raw_email.split(":", 1)[-1] if ":" in raw_email else raw_email
   sub = raw_id.split(":", 1)[-1] if ":" in raw_id else raw_id
@@ -75,16 +82,11 @@ def verify_iap_jwt(request: Request) -> Dict[str, str]:
       email = claims.get("email") or email
       sub = claims.get("sub") or sub
     except Exception as e:
-      logger.warning("IAP JWT decode fallback (%s); extracting payload", e)
-      try:
-        parts = iap_jwt.split(".")
-        if len(parts) >= 2:
-          padded = parts[1] + "=" * (-len(parts[1]) % 4)
-          claims = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
-          email = claims.get("email") or email
-          sub = claims.get("sub") or sub
-      except Exception:
-        pass
+      logger.error("IAP JWT cryptographic verification failed: %s", e)
+      raise HTTPException(
+          status_code=401,
+          detail="Invalid Cloud IAP JWT assertion signature or audience.",
+      ) from e
 
   return {
       "email": email or "authenticated-iap-user@google-cloud",
@@ -278,7 +280,11 @@ async def auth_login(
   linked = await link_user_richmenu(uid, UNLOCKED_RICHMENU_ID)
   await send_auth_success_push(uid, iap_info["email"])
 
-  html = f"""<!DOCTYPE html>
+  safe_email = html.escape(str(iap_info["email"]), quote=True)
+  safe_uid_prefix = html.escape(str(uid[:12]), quote=True)
+  safe_linked = html.escape(str(linked), quote=True)
+
+  page_html = f"""<!DOCTYPE html>
 <html lang="th">
 <head>
   <meta charset="UTF-8">
@@ -324,17 +330,17 @@ async def auth_login(
     <h1>ปลดล็อก Rich Menu 6 การ์ดสำเร็จ!</h1>
     <p>ผูกบัญชีพนักงานภายในเข้ากับ Firestore (<code>line_partner_registry</code>) โดยไม่เก็บ OAuth Key ลง <code>gs://</code></p>
     <div class="meta">
-      <div><strong>Internal Identity:</strong> {iap_info["email"]}</div>
-      <div><strong>LINE User ID:</strong> {uid[:12]}...</div>
+      <div><strong>Internal Identity:</strong> {safe_email}</div>
+      <div><strong>LINE User ID:</strong> {safe_uid_prefix}...</div>
       <div><strong>RLS Scope:</strong> ALL_IOWA (Full Access)</div>
       <div><strong>Token Broker:</strong> Stateless IAM STS (RAM Only)</div>
-      <div><strong>6-Card Menu Linked:</strong> {linked}</div>
+      <div><strong>6-Card Menu Linked:</strong> {safe_linked}</div>
     </div>
-    <a class="btn" href="https://line.me/R/ti/p/@your-line-oa">กลับไปยังแชท LINE Sales AI ➔</a>
+    <a class="btn" href="https://line.me/R/ti/p/@703tucge">กลับไปยังแชท LINE Sales AI ➔</a>
   </div>
 </body>
 </html>"""
-  return HTMLResponse(content=html)
+  return HTMLResponse(content=page_html)
 
 
 @app.get("/health")

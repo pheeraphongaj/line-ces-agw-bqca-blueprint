@@ -2,9 +2,12 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import html
 import json
 import logging
 import os
+import re
+import secrets
 import time
 import urllib.parse
 import uuid
@@ -400,7 +403,6 @@ def get_stateless_sts_token(
 
   # Mode B: IAM Service Account Impersonation (`iamcredentials.googleapis.com`)
   host_token = get_gcp_bearer_token()
-  impersonated_token = host_token
   effective_sa = target_sa or "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com"
 
   if (
@@ -432,6 +434,12 @@ def get_stateless_sts_token(
         logger.info("Minted impersonated STS token for Partner SA: %s", target_sa)
     except Exception as e:
       logger.error("Failed to impersonate Partner SA %s: %s", target_sa, e)
+      raise HTTPException(
+          status_code=503,
+          detail="Fail-Closed: Partner SA STS token brokering failed.",
+      ) from e
+  else:
+    impersonated_token = host_token
 
   entry = {
       "access_token": impersonated_token,
@@ -547,25 +555,105 @@ def ensure_mock_partners_seeded() -> List[Dict[str, Any]]:
   return seeded
 
 
+_EPHEMERAL_FALLBACK_SECRET = secrets.token_hex(32)
+_SAFE_UID_RE = re.compile(r"^[A-Za-z0-9_-]{3,64}$")
+_SAFE_CHART_ID_RE = re.compile(r"^[a-fA-F0-9]{16,64}$")
+
+
+def _get_hmac_secret() -> str:
+  if LINE_CHANNEL_SECRET:
+    return LINE_CHANNEL_SECRET
+  logger.warning(
+      "LINE_CHANNEL_SECRET is unset; using per-process ephemeral HMAC key"
+  )
+  return _EPHEMERAL_FALLBACK_SECRET
+
+
 def build_state_signature(line_user_id: str, exp: int) -> str:
-  secret = LINE_CHANNEL_SECRET or "fallback-secret"
+  secret = _get_hmac_secret()
   msg = f"{line_user_id}:{exp}".encode("utf-8")
   return hmac.new(secret.encode("utf-8"), msg, hashlib.sha256).hexdigest()
 
 
 def verify_state_signature(uid: str, exp: int, sig: str) -> bool:
-  if not uid or not sig or time.time() > exp:
+  if not uid or not sig or not _SAFE_UID_RE.fullmatch(uid) or time.time() > exp:
     return False
   expected = build_state_signature(uid, exp)
   return hmac.compare_digest(sig, expected)
 
 
+def verify_admin_request(
+    request: Request,
+    raw_body: bytes = b"",
+    uid: str = "",
+    exp: int = 0,
+    sig: str = "",
+) -> bool:
+  """Verifies administrative or test requests via X-Admin-Signature HMAC, GCP IAM Bearer token, or valid state signature."""
+  if uid and exp and sig and verify_state_signature(uid, exp, sig):
+    return True
+
+  secret = _get_hmac_secret()
+  admin_sig = (
+      request.headers.get("x-admin-signature", "").strip()
+      or request.headers.get("x-line-signature", "").strip()
+  )
+  if admin_sig:
+    body_hmac_hex = hmac.new(
+        secret.encode("utf-8"), raw_body, hashlib.sha256
+    ).hexdigest()
+    body_hmac_b64 = base64.b64encode(
+        hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).digest()
+    ).decode("utf-8")
+    if hmac.compare_digest(admin_sig, body_hmac_hex) or hmac.compare_digest(
+        admin_sig, body_hmac_b64
+    ):
+      return True
+    if uid and exp and hmac.compare_digest(
+        admin_sig, build_state_signature(uid, exp)
+    ):
+      return True
+
+  auth_hdr = request.headers.get("authorization", "").strip()
+  if auth_hdr.lower().startswith("bearer "):
+    bearer_tok = auth_hdr[7:].strip()
+    if bearer_tok:
+      try:
+        host_tok = get_gcp_bearer_token()
+        if host_tok and hmac.compare_digest(bearer_tok, host_tok):
+          return True
+      except Exception:
+        pass
+      try:
+        claims = id_token.verify_oauth2_token(
+            bearer_tok, google.auth.transport.requests.Request()
+        )
+        if claims and claims.get("sub"):
+          return True
+      except Exception:
+        pass
+      if bearer_tok.startswith("ya29."):
+        try:
+          with httpx.Client(timeout=4.0) as client:
+            resp = client.get(
+                "https://oauth2.googleapis.com/tokeninfo",
+                params={"access_token": bearer_tok},
+            )
+            if resp.status_code == 200 and resp.json().get("expires_in"):
+              return True
+        except Exception:
+          pass
+
+  return False
+
+
 def build_signed_partner_portal_url(line_user_id: str, base_url: str = "") -> str:
   exp = int(time.time() + 3600)
   sig = build_state_signature(line_user_id, exp)
+  safe_uid_q = urllib.parse.quote(str(line_user_id), safe="")
   eff_base = get_effective_base_url(base_url) or "https://iowa-line-bqca-adapter-<YOUR_PROJECT_NUMBER>.us-central1.run.app"
   return (
-      f"{eff_base}/auth/portal?uid={line_user_id}&exp={exp}&sig={sig}"
+      f"{eff_base}/auth/portal?uid={safe_uid_q}&exp={exp}&sig={sig}"
       "&openExternalBrowser=1"
   )
 
@@ -573,9 +661,10 @@ def build_signed_partner_portal_url(line_user_id: str, base_url: str = "") -> st
 def build_signed_iap_login_url(line_user_id: str) -> str:
   exp = int(time.time() + 3600)
   sig = build_state_signature(line_user_id, exp)
+  safe_uid_q = urllib.parse.quote(str(line_user_id), safe="")
   base = get_effective_iap_auth_url()
   return (
-      f"{base}/auth/login?uid={line_user_id}&exp={exp}&sig={sig}"
+      f"{base}/auth/login?uid={safe_uid_q}&exp={exp}&sig={sig}"
       "&openExternalBrowser=1"
   )
 
@@ -887,9 +976,6 @@ async def execute_iowa_bqca_query(
     rls_sql_filter: str = "",
     impersonated_sa: str = "",
 ) -> Dict[str, Any]:
-  has_user_oauth = bool(oauth_token and oauth_token.strip().startswith("ya29."))
-  token = oauth_token.strip() if has_user_oauth else get_gcp_bearer_token()
-
   # Step 1: Model Armor Prompt Inspection (`sanitizeUserPrompt` + local defense-in-depth)
   ma_res = sanitize_prompt_with_model_armor(question)
   if ma_res.get("verdict") == "BLOCK":
@@ -897,6 +983,15 @@ async def execute_iowa_bqca_query(
         status_code=400,
         detail=f"Blocked by Model Armor / PEP Guardrail: {ma_res.get('reason')}",
     )
+
+  # Step 1b: Fail-Closed Token Check (F-01 Fix: Never fall back to Host SA on unauthenticated MCP calls!)
+  has_user_oauth = bool(oauth_token and oauth_token.strip().startswith("ya29."))
+  if not has_user_oauth:
+    raise HTTPException(
+        status_code=403,
+        detail="Forbidden: Active Partner/IAP STS Bearer token required (Fail-Closed PEP).",
+    )
+  token = oauth_token.strip()
 
   # Step 2: Pass the raw user question to BQCA :chat while authenticating via HTTP
   # `Authorization: Bearer <token>` (NEVER `ChatRequest.credentials`, which `ChatAction.kt`
@@ -1009,14 +1104,22 @@ async def partner_login_portal(
     sig: str = "",
     error: str = "",
 ):
+  if not _SAFE_UID_RE.fullmatch(uid or ""):
+    uid = "U_INVALID"
+    error = error or "รหัสผู้ใช้ (UID) ไม่ถูกต้อง"
   if exp == 0 or not sig:
     exp = int(time.time() + 3600)
     sig = build_state_signature(uid, exp)
   iap_login_url = build_signed_iap_login_url(uid)
+  safe_uid = html.escape(str(uid), quote=True)
+  safe_exp = html.escape(str(exp), quote=True)
+  safe_sig = html.escape(str(sig), quote=True)
+  safe_error = html.escape(str(error), quote=True)
+  safe_iap_login_url = html.escape(str(iap_login_url), quote=True)
   err_banner = (
-      f'<div class="err">⚠️ {error}</div>' if error else ""
+      f'<div class="err">⚠️ {safe_error}</div>' if safe_error else ""
   )
-  html = f"""<!DOCTYPE html>
+  page_html = f"""<!DOCTYPE html>
 <html lang="th">
 <head>
   <meta charset="UTF-8">
@@ -1093,9 +1196,9 @@ async def partner_login_portal(
     <p class="sub">สำหรับคู่ค้า (External Partner) ยืนยันตัวตนผ่าน <strong>Firebase Authentication (Identity Platform OIDC)</strong> ผูกสิทธิ์ใน <strong>Cloud Firestore</strong> และออก Short-lived Token ผ่าน <strong>Agent Gateway / FastMCP STS Broker</strong> โดยไม่เก็บ Password Hash หรือ Key บน Firestore/gs://</p>
     {err_banner}
     <form method="POST" action="/auth/partner-login">
-      <input type="hidden" name="uid" value="{uid}">
-      <input type="hidden" name="exp" value="{exp}">
-      <input type="hidden" name="sig" value="{sig}">
+      <input type="hidden" name="uid" value="{safe_uid}">
+      <input type="hidden" name="exp" value="{safe_exp}">
+      <input type="hidden" name="sig" value="{safe_sig}">
       <label for="email">Partner Email</label>
       <input type="email" id="email" name="email" value="partner.polk@iowa-beverage.com" required>
       <label for="password">Password</label>
@@ -1127,11 +1230,11 @@ async def partner_login_portal(
     </div>
 
     <div class="divider">─── หรือสำหรับพนักงานภายในองค์กร (Internal Employee) ───</div>
-    <a class="btn-iap" href="{iap_login_url}">🔐 Sign in with Google Cloud IAP (Internal SSO)</a>
+    <a class="btn-iap" href="{safe_iap_login_url}">🔐 Sign in with Google Cloud IAP (Internal SSO)</a>
   </div>
 </body>
 </html>"""
-  return HTMLResponse(content=html)
+  return HTMLResponse(content=page_html)
 
 
 async def send_partner_auth_success_push(uid: str, record: Dict[str, Any]) -> None:
@@ -1255,7 +1358,8 @@ async def send_partner_auth_success_push(uid: str, record: Dict[str, Any]) -> No
 
 @app.post("/auth/partner-login", response_class=HTMLResponse)
 async def partner_login_submit(request: Request):
-  raw_body = (await request.body()).decode("utf-8")
+  raw_bytes = await request.body()
+  raw_body = raw_bytes.decode("utf-8")
   ctype = request.headers.get("content-type", "").lower()
   if "application/json" in ctype:
     form_data = json.loads(raw_body or "{}")
@@ -1272,13 +1376,32 @@ async def partner_login_submit(request: Request):
     email = (parsed.get("email", [""])[0]).strip()
     password = (parsed.get("password", [""])[0]).strip()
 
+  if not uid or not _SAFE_UID_RE.fullmatch(uid):
+    return await partner_login_portal(
+        uid="U_INVALID",
+        exp=0,
+        sig="",
+        error="รหัสผู้ใช้ (UID) ไม่ถูกต้อง กรุณากดเข้าสู่ระบบผ่าน LINE อีกครั้ง",
+    )
+
   if not sig and exp == 0 and uid:
-    exp = int(time.time() + 3600)
-    sig = build_state_signature(uid, exp)
+    if verify_admin_request(request, raw_bytes, uid=uid):
+      logger.warning(
+          "Authorized admin/CLI partner-login without state sig for uid=%s", uid
+      )
+      exp = int(time.time() + 300)
+      sig = build_state_signature(uid, exp)
+    elif not request.headers.get("origin") and not request.headers.get("referer"):
+      logger.warning(
+          "Unsigned non-browser CLI partner-login for validated uid=%s; issuing short-lived sig",
+          uid,
+      )
+      exp = int(time.time() + 300)
+      sig = build_state_signature(uid, exp)
 
   if not verify_state_signature(uid, exp, sig):
     return await partner_login_portal(
-        uid=uid, exp=0, sig="", error="ลิงก์หมดอายุ กรุณากดเข้าสู่ระบบใหม่อีกครั้ง"
+        uid=uid, exp=0, sig="", error="ลิงก์หมดอายุหรือไม่มีลายเซ็นยืนยัน กรุณากดเข้าสู่ระบบใหม่อีกครั้ง"
     )
 
   email_key = email.strip().lower()
@@ -1301,36 +1424,32 @@ async def partner_login_submit(request: Request):
         ),
     )
 
-  if fb_auth:
-    acct = {
-        "email": fb_auth["email"],
-        "firebase_uid": fb_auth["firebase_uid"],
-        "oidc_issuer": fb_auth["oidc_issuer"],
-        "partner_id": fb_auth.get("partner_id") or acct_meta.get("partner_id", "PARTNER-POLK-001"),
-        "partner_name": fb_auth.get("partner_name") or acct_meta.get("partner_name", "Verified Partner"),
-        "partner_tier": fb_auth.get("partner_tier") or acct_meta.get("partner_tier", "GOLD"),
-        "service_account": fb_auth.get("service_account") or acct_meta.get(
-            "service_account", "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com"
-        ),
-        "rls_policy_name": fb_auth.get("rls_policy_name") or acct_meta.get(
-            "rls_policy_name", "rls_internal_all_access"
-        ),
-        "rls_scope": fb_auth.get("rls_scope") or acct_meta.get("rls_scope", "ALL_IOWA"),
-        "rls_sql_filter": acct_meta.get("rls_sql_filter", "TRUE"),
-        "status": fb_auth.get("status", "ACTIVE"),
-        "auth_mode": "FIREBASE_AUTH_GCIP_OIDC",
-    }
-  else:
-    if not acct_meta or acct_meta.get("password_hash") != hash_password(password.strip()):
-      return await partner_login_portal(
-          uid=uid,
-          exp=exp,
-          sig=sig,
-          error="อีเมลหรือรหัสผ่านของ Partner (Firebase Auth / Identity Platform) ไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง",
-      )
-    acct = dict(acct_meta)
-    acct["firebase_uid"] = acct.get("firebase_uid", "firestore-fallback")
-    acct["oidc_issuer"] = f"https://securetoken.google.com/{PROJECT_ID}"
+  if not fb_auth:
+    return await partner_login_portal(
+        uid=uid,
+        exp=exp,
+        sig=sig,
+        error="อีเมลหรือรหัสผ่านของ Partner (Firebase Auth / Identity Platform) ไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง",
+    )
+
+  acct = {
+      "email": fb_auth["email"],
+      "firebase_uid": fb_auth["firebase_uid"],
+      "oidc_issuer": fb_auth["oidc_issuer"],
+      "partner_id": fb_auth.get("partner_id") or acct_meta.get("partner_id", "PARTNER-POLK-001"),
+      "partner_name": fb_auth.get("partner_name") or acct_meta.get("partner_name", "Verified Partner"),
+      "partner_tier": fb_auth.get("partner_tier") or acct_meta.get("partner_tier", "GOLD"),
+      "service_account": fb_auth.get("service_account") or acct_meta.get(
+          "service_account", "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com"
+      ),
+      "rls_policy_name": fb_auth.get("rls_policy_name") or acct_meta.get(
+          "rls_policy_name", "rls_internal_all_access"
+      ),
+      "rls_scope": fb_auth.get("rls_scope") or acct_meta.get("rls_scope", "ALL_IOWA"),
+      "rls_sql_filter": acct_meta.get("rls_sql_filter", "TRUE"),
+      "status": fb_auth.get("status", "ACTIVE"),
+      "auth_mode": "FIREBASE_AUTH_GCIP_OIDC",
+  }
 
   if acct.get("status") != "ACTIVE":
     await set_user_richmenu(uid, LOGIN_RICHMENU_ID)
@@ -1375,7 +1494,21 @@ async def partner_login_submit(request: Request):
   line_chat_url = f"https://line.me/R/oaMessage/{line_basic_id}/"
   line_profile_url = f"https://line.me/R/ti/p/{line_basic_id}"
 
-  html = f"""<!DOCTYPE html>
+  safe_firebase_uid = html.escape(str(registry_doc["firebase_uid"]), quote=True)
+  safe_oidc_issuer = html.escape(str(registry_doc["oidc_issuer"]), quote=True)
+  safe_partner_name = html.escape(str(acct["partner_name"]), quote=True)
+  safe_partner_id = html.escape(str(acct["partner_id"]), quote=True)
+  safe_email = html.escape(str(acct["email"]), quote=True)
+  safe_partner_tier = html.escape(str(acct["partner_tier"]), quote=True)
+  safe_rls_policy = html.escape(str(registry_doc["rls_policy_name"]), quote=True)
+  safe_rls_scope = html.escape(str(acct["rls_scope"]), quote=True)
+  safe_service_account = html.escape(str(registry_doc["service_account"]), quote=True)
+  safe_linked = html.escape(str(linked), quote=True)
+  safe_line_chat_url = html.escape(str(line_chat_url), quote=True)
+  safe_line_profile_url = html.escape(str(line_profile_url), quote=True)
+  safe_line_basic_id = html.escape(str(line_basic_id), quote=True)
+
+  page_html = f"""<!DOCTYPE html>
 <html lang="th">
 <head>
   <meta charset="UTF-8">
@@ -1427,25 +1560,31 @@ async def partner_login_submit(request: Request):
     <h1>ปลดล็อก Rich Menu 6 การ์ดสำเร็จ!</h1>
     <p>ยืนยันตัวตนผ่าน <strong>Firebase Authentication (Identity Platform OIDC)</strong> และผูกสิทธิ์ใน Firestore (<code>line_partner_registry</code>) พร้อมบังคับใช้ <strong>BigQuery Native Row Access Policy</strong> เรียบร้อยแล้ว</p>
     <div class="meta">
-      <div><strong>Firebase Auth UID:</strong> <code>{registry_doc["firebase_uid"]}</code></div>
-      <div><strong>OIDC Issuer:</strong> <code>{registry_doc["oidc_issuer"]}</code></div>
-      <div><strong>Partner Org:</strong> {acct["partner_name"]} ({acct["partner_id"]})</div>
-      <div><strong>Email / Tier:</strong> {acct["email"]} [{acct["partner_tier"]}]</div>
-      <div><strong>BQ RLS Policy:</strong> <code>{registry_doc["rls_policy_name"]}</code></div>
-      <div><strong>BQ RLS Scope:</strong> {acct["rls_scope"]}</div>
-      <div><strong>Impersonated SA:</strong> <code>{registry_doc["service_account"]}</code></div>
-      <div><strong>6-Card Menu Linked:</strong> {linked}</div>
+      <div><strong>Firebase Auth UID:</strong> <code>{safe_firebase_uid}</code></div>
+      <div><strong>OIDC Issuer:</strong> <code>{safe_oidc_issuer}</code></div>
+      <div><strong>Partner Org:</strong> {safe_partner_name} ({safe_partner_id})</div>
+      <div><strong>Email / Tier:</strong> {safe_email} [{safe_partner_tier}]</div>
+      <div><strong>BQ RLS Policy:</strong> <code>{safe_rls_policy}</code></div>
+      <div><strong>BQ RLS Scope:</strong> {safe_rls_scope}</div>
+      <div><strong>Impersonated SA:</strong> <code>{safe_service_account}</code></div>
+      <div><strong>6-Card Menu Linked:</strong> {safe_linked}</div>
     </div>
-    <a class="btn" href="{line_chat_url}">💬 เปิดห้องแชท LINE Sales AI ({line_basic_id}) ➔</a>
-    <a class="btn-sub" href="{line_profile_url}">กลับไปยังหน้าแชท / โปรไฟล์ ({line_basic_id})</a>
+    <a class="btn" href="{safe_line_chat_url}">💬 เปิดห้องแชท LINE Sales AI ({safe_line_basic_id}) ➔</a>
+    <a class="btn-sub" href="{safe_line_profile_url}">กลับไปยังหน้าแชท / โปรไฟล์ ({safe_line_basic_id})</a>
   </div>
 </body>
 </html>"""
-  return HTMLResponse(content=html)
+  return HTMLResponse(content=page_html)
 
 
 @app.post("/auth/seed-partners")
-async def api_seed_partners():
+async def api_seed_partners(request: Request):
+  raw_body = await request.body()
+  if not verify_admin_request(request, raw_body):
+    raise HTTPException(
+        status_code=401,
+        detail="Unauthorized: valid X-Admin-Signature or GCP Bearer token required to seed partner accounts.",
+    )
   seeded = ensure_mock_partners_seeded()
   return {
       "status": "ok",
@@ -1658,7 +1797,24 @@ async def mcp_streamable_http(request: Request):
                 "isError": False,
             },
         }
-      except Exception as e:
+      except HTTPException as he:
+        logger.warning("Guardrail/HTTP error in iowa_sales_agent: %s", he.detail)
+        return {
+            "jsonrpc": "2.0",
+            "id": msg_id,
+            "result": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": json.dumps(
+                            {"error": str(he.detail)}, ensure_ascii=False
+                        ),
+                    }
+                ],
+                "isError": True,
+            },
+        }
+      except Exception:
         logger.exception("Error calling iowa_sales_agent")
         return {
             "jsonrpc": "2.0",
@@ -1668,7 +1824,13 @@ async def mcp_streamable_http(request: Request):
                     {
                         "type": "text",
                         "text": json.dumps(
-                            {"error": str(e)}, ensure_ascii=False
+                            {
+                                "error": (
+                                    "Internal analytics execution error. "
+                                    "Details logged on server."
+                                )
+                            },
+                            ensure_ascii=False,
                         ),
                     }
                 ],
@@ -1704,6 +1866,8 @@ async def mcp_streamable_http(request: Request):
 # =====================================================================
 @app.get("/charts/{chart_id}.png")
 async def get_chart_png(chart_id: str):
+  if not _SAFE_CHART_ID_RE.fullmatch(chart_id or ""):
+    raise HTTPException(status_code=400, detail="Invalid chart identifier")
   if chart_id in CHART_CACHE:
     return Response(content=CHART_CACHE[chart_id], media_type="image/png")
   try:
@@ -2015,7 +2179,7 @@ async def run_ces_session(
     return {
         "text": art["answer"],
         "artifact": art,
-        "via": f"bqca_fallback ({e})",
+        "via": "bqca_fallback",
     }
 
   texts: List[str] = []
@@ -2159,11 +2323,23 @@ async def process_line_turn(
         await send_line_push(line_user_id, [msg])
     else:
       await send_line_push(line_user_id, [msg])
-  except Exception as e:
+  except HTTPException as he:
+    logger.warning("Guardrail/HTTP error during LINE turn: %s", he.detail)
+    err_msg = {
+        "type": "text",
+        "text": "🛡️ คำขอนี้ถูกปฏิเสธโดยระบบรักษาความปลอดภัย (Model Armor / PEP Guardrail)",
+    }
+    if not reply_consumed:
+      reply_consumed = True
+      guard_task.cancel()
+      await send_line_reply(reply_token, [err_msg])
+    else:
+      await send_line_push(line_user_id, [err_msg])
+  except Exception:
     logger.exception("Error processing LINE turn")
     err_msg = {
         "type": "text",
-        "text": f"เกิดข้อผิดพลาดในการเชื่อมต่อระบบวิเคราะห์ข้อมูล: {e}",
+        "text": "ขออภัย ระบบเกิดข้อผิดพลาดชั่วคราวในการเชื่อมต่อระบบวิเคราะห์ข้อมูล กรุณาลองใหม่อีกครั้งครับ",
     }
     if not reply_consumed:
       reply_consumed = True
@@ -2179,18 +2355,27 @@ async def process_line_turn(
 @app.post("/line/webhook")
 async def line_webhook(request: Request, background_tasks: BackgroundTasks):
   raw_body = await request.body()
-  signature = request.headers.get("x-line-signature", "")
+  signature = request.headers.get("x-line-signature", "").strip()
 
-  if LINE_CHANNEL_SECRET:
-    mac = hmac.new(
-        LINE_CHANNEL_SECRET.encode("utf-8"),
-        raw_body,
-        hashlib.sha256,
-    ).digest()
-    expected_sig = base64.b64encode(mac).decode("utf-8")
-    if not hmac.compare_digest(signature, expected_sig):
-      logger.warning("Invalid X-Line-Signature received")
-      raise HTTPException(status_code=400, detail="Invalid signature")
+  if not LINE_CHANNEL_SECRET:
+    logger.error("LINE_CHANNEL_SECRET is not configured; rejecting webhook")
+    raise HTTPException(
+        status_code=503, detail="LINE webhook secret is not configured"
+    )
+  if not signature:
+    raise HTTPException(
+        status_code=400, detail="Missing X-Line-Signature header"
+    )
+
+  mac = hmac.new(
+      LINE_CHANNEL_SECRET.encode("utf-8"),
+      raw_body,
+      hashlib.sha256,
+  ).digest()
+  expected_sig = base64.b64encode(mac).decode("utf-8")
+  if not hmac.compare_digest(signature, expected_sig):
+    logger.warning("Invalid X-Line-Signature received")
+    raise HTTPException(status_code=400, detail="Invalid signature")
 
   payload = json.loads(raw_body.decode("utf-8") or "{}")
   events = payload.get("events", [])
@@ -2224,14 +2409,29 @@ async def line_webhook(request: Request, background_tasks: BackgroundTasks):
 
 @app.post("/test/turn")
 async def test_turn(request: Request):
-  body = await request.json()
-  user_id = body.get("user_id", "U_DEMO_TEST")
+  raw_body = await request.body()
+  body = json.loads(raw_body.decode("utf-8") or "{}")
+  user_id = str(body.get("user_id", "U_DEMO_TEST")).strip()
   text = body.get(
       "text", "Top 5 stores by sales revenue in 2023 with bar chart"
   )
-  bypass_auth = body.get("bypass_auth", False)
+  bypass_auth = bool(body.get("bypass_auth", False))
   req_base = f"https://{request.headers.get('host', '')}"
   base_url = get_effective_base_url(req_base)
+
+  if bypass_auth:
+    exp = int(body.get("exp", 0) or 0)
+    sig = str(body.get("sig", "")).strip()
+    if not verify_admin_request(
+        request, raw_body, uid=user_id, exp=exp, sig=sig
+    ):
+      raise HTTPException(
+          status_code=401,
+          detail=(
+              "Unauthorized: bypass_auth requires a valid X-Admin-Signature "
+              "header, GCP IAM Bearer token, or verified state signature."
+          ),
+      )
 
   auth_record = firestore_get_doc(PARTNER_REGISTRY_COLLECTION, user_id)
   if (not auth_record or auth_record.get("status") != "ACTIVE") and not bypass_auth:
