@@ -12,9 +12,9 @@ This repository provides a complete, production-verified reference implementatio
 ## Demo Video :
 https://github.com/user-attachments/assets/61b716f9-d80e-4207-84e4-1a7dcc5ca5d2
 
-### GCAF + GEAP + GE Agent Gateway Security Reference Architecture (`assets/diagrams/gcaf_geap_agw_security_architecture.png`)
+### GCAF + GEAP + GE Agent Gateway Security Reference Architecture (`assets/diagrams/detailed_architecture_flow_gcaf_geap_agw.png`)
 
-![GCAF + GEAP + GE Agent Gateway Security Reference Architecture](assets/diagrams/gcaf_geap_agw_security_architecture.png)
+![GCAF + GEAP + GE Agent Gateway Security Reference Architecture](assets/diagrams/detailed_architecture_flow_gcaf_geap_agw.png)
 
 ![Hybrid Partner & Enterprise Architecture](assets/diagrams/slide_7_agw_service_extension_architecture.png)
 
@@ -37,9 +37,9 @@ https://github.com/user-attachments/assets/61b716f9-d80e-4207-84e4-1a7dcc5ca5d2
 
 ## 2. End-to-End Dataflow Diagram (`Zero x-token` in CES MCP)
 
-### 2.1 High-DPI Vector Dataflow Diagram (`assets/diagrams/line_bqca_data_flow.png`)
+### 2.1 High-DPI 17-Step Wire-Level Sequence Diagram (`assets/diagrams/detailed_sequence_flow_phase_a_and_b.png`)
 
-![End-to-End Zero x-token Dataflow Diagram](assets/diagrams/line_bqca_data_flow.png)
+![End-to-End Zero x-token Dataflow Diagram](assets/diagrams/detailed_sequence_flow_phase_a_and_b.png)
 
 ### 2.2 10-Step Sequence & Wire Transformation (`assets/diagrams/slide_8_end_to_end_dataflow_diagram.png`)
 

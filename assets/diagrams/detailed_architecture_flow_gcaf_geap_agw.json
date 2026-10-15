@@ -1,0 +1,272 @@
+{
+  "title": "LINE OA → CX Agent Studio (CES) → GE Agent Gateway (WIF STS) → BQCA & BigQuery RLS",
+  "subtitle": "Production Zero-Trust Architecture Flow Diagram (v2.4.0-gcaf-geap-agw) • GCAF 5 Pillars + SAIF + Gemini Enterprise Agent Platform (GEAP)",
+  "col_gap": 135,
+  "node_max_text_w": 310,
+  "rows": [
+    {
+      "columns": [
+        {
+          "label": "PHASE A.1: LINE OA CLIENT & RICH MENU GATE",
+          "color": "orange",
+          "nodes": [
+            {
+              "text": "A1. Default 1-Card Rich Menu (เข้าสู่ระบบ)",
+              "note": "richmenu-<1CARD_ID> (ผูกเป็นค่าเริ่มต้นของ LINE OA)\nผู้ใช้ที่ยังไม่ยืนยันตัวตนเห็นเฉพาะปุ่ม 'เข้าสู่ระบบ' เท่านั้น\nป้องกันการยิงคำถามเข้า Agent ก่อนผ่าน OIDC SSO",
+              "color": "orange",
+              "core": true
+            },
+            {
+              "text": "A5. Per-User Rich Menu Link API",
+              "note": "POST api.line.me/v2/bot/user/{uid}/richmenu/{6card_id}\nสลับหน้าจอของผู้ใช้รายนั้นจาก 1 การ์ด → 6 การ์ดทันที\nพร้อมส่ง Flex Bubble ยืนยันสิทธิ์ Partner RLS",
+              "color": "green",
+              "core": true
+            }
+          ]
+        },
+        {
+          "label": "PHASE A.2: WEBHOOK & OIDC CALLBACK (/auth/*)",
+          "color": "purple",
+          "nodes": [
+            {
+              "text": "A2. HMAC Signature & State Signer",
+              "note": "ตรวจสอบ X-Line-Signature (HMAC-SHA256)\nสร้าง state = HMAC-SHA256(line_user_id : exp_ts)\nส่ง Login Flex URI (?openExternalBrowser=1)",
+              "color": "purple",
+              "core": true
+            },
+            {
+              "text": "A4. OIDC Callback & JWT Verifier",
+              "note": "GET /auth/callback ตรวจสอบลายเซ็น RS256 / ES256\nของ OIDC ID Token และตรวจสอบ state HMAC\nป้องกัน CSRF และ Session Fixation 100%",
+              "color": "purple",
+              "core": false
+            }
+          ]
+        },
+        {
+          "label": "PHASE A.3: PRODUCTION OAUTH 2.0 / OIDC IDP",
+          "color": "blue",
+          "nodes": [
+            {
+              "text": "A3a. GCIP (Firebase Auth) + LINE Login OIDC",
+              "note": "Recommended สำหรับ External Partners (10–1M+ ราย)\nรองรับ Multi-Tenancy, MFA และ beforeSignIn Blocking\nFunction ดึง {partner_id, store_number} ฝังใน ID Token",
+              "color": "blue",
+              "core": true
+            },
+            {
+              "text": "A3b. Enterprise BYO-IdP & Cloud IAP",
+              "note": "• Auth0 / Okta / Entra ID เชื่อมต่อผ่าน OIDC / SAML 2.0\n• พนักงานภายในยืนยันตัวตนผ่าน Cloud IAP\n  (ตรวจสอบ Header: X-Goog-IAP-JWT-Assertion)",
+              "color": "blue",
+              "core": false
+            }
+          ]
+        },
+        {
+          "label": "PHASE A.4: CMEK TOKEN VAULT & REGISTRY",
+          "color": "green",
+          "nodes": [
+            {
+              "text": "A4a. GE Agent Identity Auth Manager (CMEK)",
+              "note": "จัดเก็บ 3LO Refresh Token เข้ารหัสด้วย Cloud KMS CMEK\nSecret Manager เก็บ LINE_CHANNEL_SECRET & OIDC Keys\n(ยกเลิกการเก็บไฟล์ OAuth Token ใน gs:// Bucket 100%!)",
+              "color": "green",
+              "core": true
+            },
+            {
+              "text": "A4b. Cloud Firestore Partner Registry",
+              "note": "Collection: line_partner_registry/{line_user_id}\nเก็บเฉพาะ {oidc_sub, partner_id: 'PARTNER-POLK-001',\nrls_policy_name, rls_scope: 'Store #2633', status: 'ACTIVE'}",
+              "color": "orange",
+              "core": true
+            }
+          ]
+        }
+      ],
+      "arrows": [
+        {
+          "from": 0,
+          "to": 1,
+          "dir": "both",
+          "label": "[A1] กดปุ่ม 'เข้าสู่ระบบ'\nPOST /line/webhook\n(คืนลิงก์ Signed OIDC URL)"
+        },
+        {
+          "from": 1,
+          "to": 2,
+          "dir": "both",
+          "label": "[A2–A3] เปิด Safari/Chrome\nLINE OIDC / Auth0 / IAP\n+ beforeSignIn Claims"
+        },
+        {
+          "from": 2,
+          "to": 3,
+          "dir": "right",
+          "label": "[A4–A5] เก็บ 3LO Token (CMEK)\n+ บันทึก Firestore ACTIVE\n+ ปลดล็อกเมนู 6 การ์ด"
+        }
+      ]
+    },
+    {
+      "columns": [
+        {
+          "label": "PHASE B.1: 6-CARD MENU & WEBHOOK BRIDGE",
+          "color": "orange",
+          "nodes": [
+            {
+              "text": "B1. Unlocked 6-Card Rich Menu (เมนูวิเคราะห์)",
+              "note": "1. Top 5 Stores  2. Top Brands  3. Sales Trend\n4. County Breakdown  5. Pack vs Bottle  6. Ask Anything",
+              "color": "orange",
+              "core": true
+            },
+            {
+              "text": "B2. Cloud Run Webhook & 22.0s SLA Guard",
+              "note": "• ตอบ HTTP 200 OK ใน <50ms + เปิด Loading Dots\n• ตรวจสอบ Firestore status == ACTIVE ก่อนเรียก CES\n• ไม่สร้างและไม่ส่ง OAuth Token ใดๆ เข้าสู่ CES LLM!",
+              "color": "purple",
+              "core": true
+            },
+            {
+              "text": "B10. LINE Flex Bubble Delivery (Reply / Push)",
+              "note": "• <22.0s: ส่งผ่าน Free replyToken ($0.00 Message Fee)\n• >=22.0s: ส่งข้อความแจ้งเตือนชั่วคราว + Async Push API\n• แสดงกราฟ 2x PNG + ป้ายกำกับสิทธิ์ RLS + SQL",
+              "color": "green",
+              "core": false
+            }
+          ]
+        },
+        {
+          "label": "PHASE B.2: CX AGENT STUDIO (GEAP BUILD)",
+          "color": "purple",
+          "nodes": [
+            {
+              "text": "B3. CES Root Supervisor Agent (:runSession)",
+              "note": "POST ces.googleapis.com/.../sessions/{sid}:runSession\nsession_id = f'line-{uid}-{partner_id}-rls23'\ninputs: [{'variables': {'line_user_id': 'U...'}}, {'text': ...}]",
+              "color": "purple",
+              "core": true
+            },
+            {
+              "text": "B4. Pinned McpToolset (NO x-token Parameter!)",
+              "note": "• Tool Schema: ask_iowa_sales_agent(question: string)\n• ถอดพารามิเตอร์ x-token / user_oauth_token ออก 100%!\n• เปิด fetchPinnedToolsIfPossible = true (-300ms/turn)",
+              "color": "red",
+              "core": true
+            },
+            {
+              "text": "B4b. MCP Custom Header Binding",
+              "note": "McpToolset.customHeaders แนบเฉพาะ HTTP Header:\n{'x-line-user-id': '$context.variables.line_user_id'}\nส่งต่อไปยัง GE Agent Gateway เท่านั้น",
+              "color": "purple",
+              "core": false
+            }
+          ]
+        },
+        {
+          "label": "PHASE B.3: GE AGENT GATEWAY & STS (GEAP GOVERN)",
+          "color": "green",
+          "nodes": [
+            {
+              "text": "B5. GE Agent Gateway (CLIENT_TO_AGENT PEP)",
+              "note": "• ผูกกับ Agent Registry (SPIFFE ID: principal://...)\n• REQUEST_AUTHZ: Cloud IAP ตรวจสอบสิทธิ์ผู้เรียก\n• CONTENT_AUTHZ: Model Armor สแกน PIJB & Sensitive PII",
+              "color": "green",
+              "core": true
+            },
+            {
+              "text": "B6. Envoy ext_proc (/ext-proc/oauth-broker)",
+              "note": "• ดักจับ MCP Request และดึง Header: x-line-user-id\n• ตรวจสอบ Firestore line_partner_registry/{uid}\n  (หาก status != ACTIVE → บล็อกด้วย HTTP 403 ทันที!)",
+              "color": "blue",
+              "core": true
+            },
+            {
+              "text": "B7. WIF & IAM STS Token Exchange (RAM Only)",
+              "note": "• เรียก sts.googleapis.com/v1/token (RFC 8693, TTL 5–15m)\n• ฉีด Header เข้าสู่ Upstream /mcp/ โดยตรง:\n  Authorization: Bearer <short_lived_sts_token>\n  x-agw-verified-partner-id & x-agw-rls-policy",
+              "color": "orange",
+              "core": true
+            }
+          ]
+        },
+        {
+          "label": "PHASE B.4: FASTMCP, BQCA & BIGQUERY NATIVE RLS",
+          "color": "blue",
+          "nodes": [
+            {
+              "text": "B8. PSC Interface & FastMCP Server (/mcp/)",
+              "note": "• เชื่อมต่อผ่าน Private Service Connect (10.10.20.2)\n• resolve_agw_injected_context() อ่าน Bearer <sts_token>\n  และ x-agw-verified-partner-id จาก HTTP Header",
+              "color": "green",
+              "core": false
+            },
+            {
+              "text": "B8b. BQCA Regional Streaming API (:chat)",
+              "note": "POST geminidataanalytics.us.rep.googleapis.com/...:chat\nเรียกใช้ dataAgents/iowa_sales_agent ด้วย Bearer <sts>\nทำให้ BigQuery รันงานภายใต้ตัวตนของ Partner จริง!",
+              "color": "blue",
+              "core": true
+            },
+            {
+              "text": "B8c. BigQuery Native ROW ACCESS POLICY",
+              "note": "• PoC: FILTER USING (LOWER(county)='polk' AND store='2633')\n• 10k+ WIF: EXISTS (... WHERE principal_email=SESSION_USER())\n• PoLP: มอบ filteredDataViewer บน Policy เท่านั้น",
+              "color": "red",
+              "core": true
+            },
+            {
+              "text": "B9. Vega-Lite 2x Retina PNG & GCS Bucket",
+              "note": "แปลง vegaConfig JSON → 2x PNG ด้วย vl-convert-python\nอัปโหลดขึ้น gs://<PROJECT>-line-charts/charts/",
+              "color": "purple",
+              "core": false
+            }
+          ]
+        }
+      ],
+      "arrows": [
+        {
+          "from": 0,
+          "to": 1,
+          "dir": "both",
+          "label": "[B1–B3] POST :runSession\nส่งเฉพาะ line_user_id\n(Zero Token in LLM!)"
+        },
+        {
+          "from": 1,
+          "to": 2,
+          "dir": "both",
+          "label": "[B4–B5] MCP tools/call\nHeader: x-line-user-id\n(NO x-token param!)"
+        },
+        {
+          "from": 2,
+          "to": 3,
+          "dir": "both",
+          "label": "[B6–B9] AGW ฉีด Header\nAuthorization: Bearer <sts>\n→ BQCA → BigQuery RLS"
+        }
+      ]
+    },
+    {
+      "columns": [
+        {
+          "label": "GOOGLE CLOUD ARCHITECTURE FRAMEWORK (GCAF) 5 PILLARS + SAIF + GEMINI ENTERPRISE AGENT PLATFORM (GEAP) FOUNDATION",
+          "color": "blue",
+          "orientation": "horizontal",
+          "nodes": [
+            {
+              "text": "1. GCAF Security & SAIF",
+              "note": "• Zero OAuth Token ใน LLM & gs://\n• VPC-SC Perimeter ครอบคลุมทุกบริการ\n• Cloud KMS CMEK เข้ารหัส 3LO Vault\n• PoLP filteredDataViewer บน RLS",
+              "color": "red",
+              "core": true
+            },
+            {
+              "text": "2. GEAP Build & Scale",
+              "note": "• Agent Registry (SPIFFE Identity)\n• MCP Registry (iowa-bqca-mcp)\n• CES MCP Tool Pinning (-300ms)\n• 2-Element SessionInput Contract",
+              "color": "purple",
+              "core": true
+            },
+            {
+              "text": "3. GEAP Govern (AGW)",
+              "note": "• CLIENT_TO_AGENT Ingress PEP\n• 1P Cloud IAP + Model Armor\n• Envoy ext_proc WIF STS Broker\n• Wire-Level Bearer Injection",
+              "color": "green",
+              "core": true
+            },
+            {
+              "text": "4. GCAF Reliability",
+              "note": "• <50ms Webhook 200 OK Ack\n• 22.0s Watchdog (Reply vs Push)\n• Regional Endpoint (us.rep)\n• Firestore Kill-Switch (SUSPENDED)",
+              "color": "blue",
+              "core": true
+            },
+            {
+              "text": "5. GCAF FinOps & Cost",
+              "note": "• Partitioned DATE, Clustered Store\n• max_bytes_billed = 100MB Guard\n• Daily BQCA Token Quota per User\n• Zero-DDL Onboarding (10k+ Users)",
+              "color": "orange",
+              "core": true
+            }
+          ]
+        }
+      ],
+      "arrows": []
+    }
+  ]
+}

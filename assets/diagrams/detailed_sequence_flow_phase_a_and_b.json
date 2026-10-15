@@ -1,0 +1,168 @@
+{
+  "title": "End-to-End Wire-Level Sequence Diagram (17 Steps): Phase A OIDC Login & Phase B Zero x-token Runtime",
+  "subtitle": "LINE OA → Webhook Bridge → GCIP (Firebase Auth) / Auth0 / IAP → Firestore & Auth Mgr → CES → GE Agent Gateway (WIF STS) → FastMCP, BQCA & BigQuery RLS",
+  "participant_gap": 46,
+  "pad_x": 44,
+  "participants": [
+    {
+      "title": "1. LINE User & Client",
+      "sub": "(1-Card → 6-Card Menu)",
+      "color": "orange",
+      "width": 215
+    },
+    {
+      "title": "2. LINE Platform API",
+      "sub": "(api.line.me Webhook/Menu)",
+      "color": "green",
+      "width": 225
+    },
+    {
+      "title": "3. Webhook & Auth Bridge",
+      "sub": "(Cloud Run /line/webhook)",
+      "color": "purple",
+      "width": 235
+    },
+    {
+      "title": "4. GCIP (Firebase) / Auth0",
+      "sub": "(LINE OIDC / SAML / IAP)",
+      "color": "blue",
+      "width": 245
+    },
+    {
+      "title": "5. Firestore & Auth Mgr",
+      "sub": "(Registry + CMEK 3LO Vault)",
+      "color": "orange",
+      "width": 245
+    },
+    {
+      "title": "6. CX Agent Studio (CES)",
+      "sub": "(Supervisor + McpToolset)",
+      "color": "purple",
+      "width": 245
+    },
+    {
+      "title": "7. GE Agent Gateway & STS",
+      "sub": "(IAP + Model Armor + ext_proc)",
+      "color": "green",
+      "width": 255
+    },
+    {
+      "title": "8. FastMCP, BQCA & BQ RLS",
+      "sub": "(/mcp/ → us.rep :chat → BQ)",
+      "color": "red",
+      "width": 255
+    }
+  ],
+  "steps": [
+    {
+      "section": "PHASE A: PRODUCTION OAUTH 2.0 / OIDC ONBOARDING (GCIP / FIREBASE AUTH, AUTH0 OR CLOUD IAP) & PER-USER 6-CARD RICH MENU UNLOCK",
+      "color": "green"
+    },
+    {
+      "from": 0,
+      "to": 1,
+      "dashed": false,
+      "label": "[A1] ผู้ใช้กดปุ่ม 'เข้าสู่ระบบ (Sign In)' บน Default 1-Card Rich Menu (richmenu-<1CARD_ID>)\nLINE Platform ส่ง MESSAGE Webhook Event พร้อม source.userId (U...) และ replyToken"
+    },
+    {
+      "from": 1,
+      "to": 2,
+      "dashed": false,
+      "label": "[A2] POST /line/webhook (ตรวจสอบ Header: X-Line-Signature HMAC-SHA256)\nสร้าง state = HMAC-SHA256(uid:exp) และตอบกลับด้วยปุ่ม Login Flex URI (?openExternalBrowser=1)"
+    },
+    {
+      "from": 0,
+      "to": 3,
+      "dashed": false,
+      "label": "[A3] เปิด External Browser (Safari/Chrome) เพื่อยืนยันตัวตนผ่าน OIDC / SAML / Cloud IAP\nPartner ภายนอก: GCIP (Firebase Auth + LINE Login OIDC) หรือ Auth0 | พนักงานภายใน: Cloud IAP"
+    },
+    {
+      "from": 3,
+      "to": 3,
+      "dashed": false,
+      "label": "[A4] GCIP beforeSignIn Blocking Function (หรือ Auth0 Action) ทำงานอัตโนมัติ\nดึงสิทธิ์จากตาราง rls_partner_entitlements และฝัง Custom Claims {partner_id, store_number} ลงใน OIDC JWT"
+    },
+    {
+      "from": 3,
+      "to": 2,
+      "dashed": true,
+      "label": "[A5] Redirect ส่ง OIDC ID Token / Code กลับมายัง GET /auth/callback (หรือ X-Goog-IAP-JWT-Assertion)\nWebhook Bridge ตรวจสอบลายเซ็น RS256/ES256 และตรวจสอบความถูกต้องของ state HMAC"
+    },
+    {
+      "from": 2,
+      "to": 4,
+      "dashed": false,
+      "label": "[A6] เก็บ 3LO Refresh Token ใน GE Agent Identity Auth Manager (CMEK) และบันทึกสถานะใน Firestore\nline_partner_registry/{uid} เก็บเฉพาะ {oidc_sub, partner_id: 'PARTNER-POLK-001', store: '2633', status: 'ACTIVE'} (Zero gs://!)"
+    },
+    {
+      "from": 2,
+      "to": 1,
+      "dashed": false,
+      "label": "[A7] POST https://api.line.me/v2/bot/user/{uid}/richmenu/{richmenu_6card_id}\nปลดล็อกหน้าจอของผู้ใช้รายนั้นจากเมนู 1 การ์ด → เมนูวิเคราะห์ข้อมูล 6 การ์ด พร้อมส่ง Partner RLS Badge"
+    },
+    {
+      "section": "PHASE B: RUNTIME ANALYTICS QUERY — ZERO X-TOKEN IN CES MCP, GE AGENT GATEWAY EXT_PROC WIF STS INJECTION & BIGQUERY NATIVE RLS",
+      "color": "blue"
+    },
+    {
+      "from": 0,
+      "to": 2,
+      "dashed": false,
+      "label": "[B1] Partner กดปุ่ม 'Top 5 Stores' บนเมนู 6 การ์ด → LINE เรียก POST /line/webhook\nBridge ตอบ HTTP 200 OK ใน <50ms, เรียก POST /v2/bot/chat/loading/start และเริ่มจับเวลา 22.0s Watchdog"
+    },
+    {
+      "from": 2,
+      "to": 4,
+      "dashed": false,
+      "label": "[B2] Pre-Check: อ่าน Firestore line_partner_registry/{uid} เพื่อตรวจสอบว่า status == ACTIVE\n(หาก status == SUSPENDED → สลับ Rich Menu กลับเป็น 1 การ์ดและยุติการทำงานทันที โดยไม่สร้าง Token ใดๆ)"
+    },
+    {
+      "from": 2,
+      "to": 5,
+      "dashed": false,
+      "label": "[B3] POST ces.googleapis.com/v1beta/.../sessions/line-{uid}-{partner}-rls23:runSession\ninputs: [{'variables': {'line_user_id': 'U...'}}, {'text': 'Top 5 stores'}] — ไม่มี OAuth Token ใน LLM Context!"
+    },
+    {
+      "from": 5,
+      "to": 6,
+      "dashed": false,
+      "label": "[B4] CES McpToolset เรียกใช้ ask_iowa_sales_agent(question) ผ่าน GE Agent Gateway\nTool Pinning ข้าม tools/list (-300ms) | customHeaders ส่งเฉพาะ {'x-line-user-id': 'U...'} — ไม่มีพารามิเตอร์ x-token!"
+    },
+    {
+      "from": 6,
+      "to": 6,
+      "dashed": false,
+      "label": "[B5] GE Agent Gateway บังคับใช้ 1P AuthzPolicies (REQUEST_AUTHZ + CONTENT_AUTHZ)\nCloud IAP ตรวจสอบ SPIFFE ID/IAM ของผู้เรียก | Model Armor สแกน Prompt Injection (PIJB) และข้อมูลส่วนบุคคล (SDP)"
+    },
+    {
+      "from": 6,
+      "to": 4,
+      "dashed": false,
+      "label": "[B6] AGW Envoy ext_proc (/ext-proc/oauth-broker) ตรวจสอบ Firestore ACTIVE และเรียก WIF / IAM STS\nPOST sts.googleapis.com/v1/token (RFC 8693) แลกเป็น Short-Lived STS Bearer Token (TTL 5–15 นาทีใน RAM เท่านั้น)"
+    },
+    {
+      "from": 6,
+      "to": 7,
+      "dashed": false,
+      "label": "[B7] AGW ฉีด Header และส่งต่อ POST /mcp/ ผ่าน Private Service Connect (PSC Interface)\nแนบ Header: Authorization: Bearer <sts_token>, x-agw-verified-partner-id: PARTNER-POLK-001 และ x-agw-rls-policy"
+    },
+    {
+      "from": 7,
+      "to": 7,
+      "dashed": false,
+      "label": "[B8] FastMCP เรียก Regional BQCA (locations/us:chat) ด้วย Header: Authorization: Bearer <sts_token>\nBigQuery รัน SQL ภายใต้ SESSION_USER() / Partner SA → บังคับใช้ ROW ACCESS POLICY (เห็นเฉพาะ Store #2633!)"
+    },
+    {
+      "from": 7,
+      "to": 5,
+      "dashed": true,
+      "label": "[B9] แปลง Vega-Lite vegaConfig → 2x Retina PNG (vl-convert) → อัปโหลดขึ้น gs://...-line-charts\nส่งผลลัพธ์ JSON-RPC (answer, generated_sql, chart_url, followups, rls_badge) ย้อนกลับผ่าน AGW มายัง CES"
+    },
+    {
+      "from": 2,
+      "to": 0,
+      "dashed": true,
+      "label": "[B10] 22s Cutoff Guard จัดส่ง LINE Flex Bubble (กราฟ 2x PNG + ป้ายกำกับสิทธิ์ Store #2633 + SQL)\nกรณี <22.0s: ส่งผ่าน POST /v2/bot/message/reply (ฟรี $0.00!) | กรณี >=22.0s: แจ้งเตือนชั่วคราว + Async Push API"
+    }
+  ]
+}

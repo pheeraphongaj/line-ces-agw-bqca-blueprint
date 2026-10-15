@@ -1,0 +1,150 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2330 1888" width="2330" height="1888">
+
+    <defs>
+      <style>
+        text {
+          font-family: 'Roboto', 'Sarabun', 'Noto Sans Thai', 'Noto Sans CJK JP', 'Arial', sans-serif;
+        }
+        .box-title { font-size: 14px; font-weight: 700; }
+        .box-sub { font-size: 11.5px; font-weight: 500; opacity: 0.85; }
+        .step-label { font-size: 13px; font-weight: 600; fill: #202124; }
+        .step-sub { font-size: 11.5px; font-weight: 500; fill: #5F6368; }
+      </style>
+      <marker id="arrow-solid" viewBox="0 0 10 10" refX="9" refY="5"
+              markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+        <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#3C4043"/>
+      </marker>
+    </defs>
+        
+<rect x="0" y="0" width="2330" height="1888" fill="#FFFFFF"/>
+<text x="44" y="54" font-size="26" font-weight="700" fill="#202124">End-to-End Wire-Level Sequence Diagram (17 Steps): Phase A OIDC Login &amp; Phase B Zero x-token Runtime</text>
+<text x="44" y="80" font-size="14" fill="#5F6368">LINE OA → Webhook Bridge → GCIP (Firebase Auth) / Auth0 / IAP → Firestore &amp; Auth Mgr → CES → GE Agent Gateway (WIF STS) → FastMCP, BQCA &amp; BigQuery RLS</text>
+<line x1="151" y1="158" x2="151" y2="1800" stroke="#BDC1C6" stroke-width="2" stroke-dasharray="6,5"/>
+<line x1="417" y1="158" x2="417" y2="1800" stroke="#BDC1C6" stroke-width="2" stroke-dasharray="6,5"/>
+<line x1="693" y1="158" x2="693" y2="1800" stroke="#BDC1C6" stroke-width="2" stroke-dasharray="6,5"/>
+<line x1="979" y1="158" x2="979" y2="1800" stroke="#BDC1C6" stroke-width="2" stroke-dasharray="6,5"/>
+<line x1="1270" y1="158" x2="1270" y2="1800" stroke="#BDC1C6" stroke-width="2" stroke-dasharray="6,5"/>
+<line x1="1561" y1="158" x2="1561" y2="1800" stroke="#BDC1C6" stroke-width="2" stroke-dasharray="6,5"/>
+<line x1="1857" y1="158" x2="1857" y2="1800" stroke="#BDC1C6" stroke-width="2" stroke-dasharray="6,5"/>
+<line x1="2158" y1="158" x2="2158" y2="1800" stroke="#BDC1C6" stroke-width="2" stroke-dasharray="6,5"/>
+<rect x="43.5" y="102" width="215" height="56" rx="10" fill="#FEF7E0" stroke="#F9AB00" stroke-width="2"/>
+<text x="151" y="126" text-anchor="middle" class="box-title" fill="#B06000">1. LINE User &amp; Client</text>
+<text x="151" y="145" text-anchor="middle" class="box-sub" fill="#B06000">(1-Card → 6-Card Menu)</text>
+<rect x="304.5" y="102" width="225" height="56" rx="10" fill="#E6F4EA" stroke="#1E8E3E" stroke-width="2"/>
+<text x="417" y="126" text-anchor="middle" class="box-title" fill="#137333">2. LINE Platform API</text>
+<text x="417" y="145" text-anchor="middle" class="box-sub" fill="#137333">(api.line.me Webhook/Menu)</text>
+<rect x="575.5" y="102" width="235" height="56" rx="10" fill="#F3E8FD" stroke="#9334E6" stroke-width="2"/>
+<text x="693" y="126" text-anchor="middle" class="box-title" fill="#681DA8">3. Webhook &amp; Auth Bridge</text>
+<text x="693" y="145" text-anchor="middle" class="box-sub" fill="#681DA8">(Cloud Run /line/webhook)</text>
+<rect x="856.5" y="102" width="245" height="56" rx="10" fill="#E8F0FE" stroke="#1A73E8" stroke-width="2"/>
+<text x="979" y="126" text-anchor="middle" class="box-title" fill="#174EA6">4. GCIP (Firebase) / Auth0</text>
+<text x="979" y="145" text-anchor="middle" class="box-sub" fill="#174EA6">(LINE OIDC / SAML / IAP)</text>
+<rect x="1147.5" y="102" width="245" height="56" rx="10" fill="#FEF7E0" stroke="#F9AB00" stroke-width="2"/>
+<text x="1270" y="126" text-anchor="middle" class="box-title" fill="#B06000">5. Firestore &amp; Auth Mgr</text>
+<text x="1270" y="145" text-anchor="middle" class="box-sub" fill="#B06000">(Registry + CMEK 3LO Vault)</text>
+<rect x="1438.5" y="102" width="245" height="56" rx="10" fill="#F3E8FD" stroke="#9334E6" stroke-width="2"/>
+<text x="1561" y="126" text-anchor="middle" class="box-title" fill="#681DA8">6. CX Agent Studio (CES)</text>
+<text x="1561" y="145" text-anchor="middle" class="box-sub" fill="#681DA8">(Supervisor + McpToolset)</text>
+<rect x="1729.5" y="102" width="255" height="56" rx="10" fill="#E6F4EA" stroke="#1E8E3E" stroke-width="2"/>
+<text x="1857" y="126" text-anchor="middle" class="box-title" fill="#137333">7. GE Agent Gateway &amp; STS</text>
+<text x="1857" y="145" text-anchor="middle" class="box-sub" fill="#137333">(IAP + Model Armor + ext_proc)</text>
+<rect x="2030.5" y="102" width="255" height="56" rx="10" fill="#FCE8E6" stroke="#D93025" stroke-width="2"/>
+<text x="2158" y="126" text-anchor="middle" class="box-title" fill="#A50E0E">8. FastMCP, BQCA &amp; BQ RLS</text>
+<text x="2158" y="145" text-anchor="middle" class="box-sub" fill="#A50E0E">(/mcp/ → us.rep :chat → BQ)</text>
+<rect x="43.5" y="1800" width="215" height="56" rx="10" fill="#FEF7E0" stroke="#F9AB00" stroke-width="2"/>
+<text x="151" y="1824" text-anchor="middle" class="box-title" fill="#B06000">1. LINE User &amp; Client</text>
+<text x="151" y="1843" text-anchor="middle" class="box-sub" fill="#B06000">(1-Card → 6-Card Menu)</text>
+<rect x="304.5" y="1800" width="225" height="56" rx="10" fill="#E6F4EA" stroke="#1E8E3E" stroke-width="2"/>
+<text x="417" y="1824" text-anchor="middle" class="box-title" fill="#137333">2. LINE Platform API</text>
+<text x="417" y="1843" text-anchor="middle" class="box-sub" fill="#137333">(api.line.me Webhook/Menu)</text>
+<rect x="575.5" y="1800" width="235" height="56" rx="10" fill="#F3E8FD" stroke="#9334E6" stroke-width="2"/>
+<text x="693" y="1824" text-anchor="middle" class="box-title" fill="#681DA8">3. Webhook &amp; Auth Bridge</text>
+<text x="693" y="1843" text-anchor="middle" class="box-sub" fill="#681DA8">(Cloud Run /line/webhook)</text>
+<rect x="856.5" y="1800" width="245" height="56" rx="10" fill="#E8F0FE" stroke="#1A73E8" stroke-width="2"/>
+<text x="979" y="1824" text-anchor="middle" class="box-title" fill="#174EA6">4. GCIP (Firebase) / Auth0</text>
+<text x="979" y="1843" text-anchor="middle" class="box-sub" fill="#174EA6">(LINE OIDC / SAML / IAP)</text>
+<rect x="1147.5" y="1800" width="245" height="56" rx="10" fill="#FEF7E0" stroke="#F9AB00" stroke-width="2"/>
+<text x="1270" y="1824" text-anchor="middle" class="box-title" fill="#B06000">5. Firestore &amp; Auth Mgr</text>
+<text x="1270" y="1843" text-anchor="middle" class="box-sub" fill="#B06000">(Registry + CMEK 3LO Vault)</text>
+<rect x="1438.5" y="1800" width="245" height="56" rx="10" fill="#F3E8FD" stroke="#9334E6" stroke-width="2"/>
+<text x="1561" y="1824" text-anchor="middle" class="box-title" fill="#681DA8">6. CX Agent Studio (CES)</text>
+<text x="1561" y="1843" text-anchor="middle" class="box-sub" fill="#681DA8">(Supervisor + McpToolset)</text>
+<rect x="1729.5" y="1800" width="255" height="56" rx="10" fill="#E6F4EA" stroke="#1E8E3E" stroke-width="2"/>
+<text x="1857" y="1824" text-anchor="middle" class="box-title" fill="#137333">7. GE Agent Gateway &amp; STS</text>
+<text x="1857" y="1843" text-anchor="middle" class="box-sub" fill="#137333">(IAP + Model Armor + ext_proc)</text>
+<rect x="2030.5" y="1800" width="255" height="56" rx="10" fill="#FCE8E6" stroke="#D93025" stroke-width="2"/>
+<text x="2158" y="1824" text-anchor="middle" class="box-title" fill="#A50E0E">8. FastMCP, BQCA &amp; BQ RLS</text>
+<text x="2158" y="1843" text-anchor="middle" class="box-sub" fill="#A50E0E">(/mcp/ → us.rep :chat → BQ)</text>
+<rect x="44" y="184" width="2242" height="32" rx="8" fill="#E6F4EA" stroke="#1E8E3E" stroke-width="1.8" stroke-dasharray="6,4"/>
+<text x="1165.0" y="205" text-anchor="middle" font-size="13.5" font-weight="700" fill="#137333">PHASE A: PRODUCTION OAUTH 2.0 / OIDC ONBOARDING (GCIP / FIREBASE AUTH, AUTH0 OR CLOUD IAP) &amp; PER-USER 6-CARD RICH MENU UNLOCK</text>
+<rect x="44" y="234" width="618" height="36" rx="4" fill="#FFFFFF" opacity="0.94"/>
+<text x="353.0" y="249" text-anchor="middle" class="step-label">[A1] ผู้ใช้กดปุ่ม &#x27;เข้าสู่ระบบ (Sign In)&#x27; บน Default 1-Card Rich Menu (richmenu-&lt;1CARD_ID&gt;)</text>
+<text x="353.0" y="265" text-anchor="middle" class="step-sub">LINE Platform ส่ง MESSAGE Webhook Event พร้อม source.userId (U...) และ replyToken</text>
+<line x1="151" y1="276" x2="413" y2="276" stroke="#3C4043" stroke-width="2" marker-end="url(#arrow-solid)"/>
+<rect x="239.0" y="318" width="632" height="36" rx="4" fill="#FFFFFF" opacity="0.94"/>
+<text x="555.0" y="333" text-anchor="middle" class="step-label">[A2] POST /line/webhook (ตรวจสอบ Header: X-Line-Signature HMAC-SHA256)</text>
+<text x="555.0" y="349" text-anchor="middle" class="step-sub">สร้าง state = HMAC-SHA256(uid:exp) และตอบกลับด้วยปุ่ม Login Flex URI (?openExternalBrowser=1)</text>
+<line x1="417" y1="360" x2="689" y2="360" stroke="#3C4043" stroke-width="2" marker-end="url(#arrow-solid)"/>
+<rect x="256.0" y="402" width="618" height="36" rx="4" fill="#FFFFFF" opacity="0.94"/>
+<text x="565.0" y="417" text-anchor="middle" class="step-label">[A3] เปิด External Browser (Safari/Chrome) เพื่อยืนยันตัวตนผ่าน OIDC / SAML / Cloud IAP</text>
+<text x="565.0" y="433" text-anchor="middle" class="step-sub">Partner ภายนอก: GCIP (Firebase Auth + LINE Login OIDC) หรือ Auth0 | พนักงานภายใน: Cloud IAP</text>
+<line x1="151" y1="444" x2="975" y2="444" stroke="#3C4043" stroke-width="2" marker-end="url(#arrow-solid)"/>
+<path d="M 979 520 L 1034 520 L 1034 554 L 983 554" fill="none" stroke="#3C4043" stroke-width="2" marker-end="url(#arrow-solid)"/>
+<rect x="1042" y="517" width="715" height="39" rx="4" fill="#FFFFFF" opacity="0.94"/>
+<text x="1046" y="532" text-anchor="start" class="step-label">[A4] GCIP beforeSignIn Blocking Function (หรือ Auth0 Action) ทำงานอัตโนมัติ</text>
+<text x="1046" y="549" text-anchor="start" class="step-sub">ดึงสิทธิ์จากตาราง rls_partner_entitlements และฝัง Custom Claims {partner_id, store_number} ลงใน OIDC JWT</text>
+<rect x="499.5" y="586" width="673" height="36" rx="4" fill="#FFFFFF" opacity="0.94"/>
+<text x="836.0" y="601" text-anchor="middle" class="step-label">[A5] Redirect ส่ง OIDC ID Token / Code กลับมายัง GET /auth/callback (หรือ X-Goog-IAP-JWT-Assertion)</text>
+<text x="836.0" y="617" text-anchor="middle" class="step-sub">Webhook Bridge ตรวจสอบลายเซ็น RS256/ES256 และตรวจสอบความถูกต้องของ state HMAC</text>
+<line x1="979" y1="628" x2="697" y2="628" stroke="#3C4043" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#arrow-solid)"/>
+<rect x="550.0" y="670" width="863" height="36" rx="4" fill="#FFFFFF" opacity="0.94"/>
+<text x="981.5" y="685" text-anchor="middle" class="step-label">[A6] เก็บ 3LO Refresh Token ใน GE Agent Identity Auth Manager (CMEK) และบันทึกสถานะใน Firestore</text>
+<text x="981.5" y="701" text-anchor="middle" class="step-sub">line_partner_registry/{uid} เก็บเฉพาะ {oidc_sub, partner_id: &#x27;PARTNER-POLK-001&#x27;, store: &#x27;2633&#x27;, status: &#x27;ACTIVE&#x27;} (Zero gs://!)</text>
+<line x1="693" y1="712" x2="1266" y2="712" stroke="#3C4043" stroke-width="2" marker-end="url(#arrow-solid)"/>
+<rect x="212.0" y="754" width="686" height="36" rx="4" fill="#FFFFFF" opacity="0.94"/>
+<text x="555.0" y="769" text-anchor="middle" class="step-label">[A7] POST https://api.line.me/v2/bot/user/{uid}/richmenu/{richmenu_6card_id}</text>
+<text x="555.0" y="785" text-anchor="middle" class="step-sub">ปลดล็อกหน้าจอของผู้ใช้รายนั้นจากเมนู 1 การ์ด → เมนูวิเคราะห์ข้อมูล 6 การ์ด พร้อมส่ง Partner RLS Badge</text>
+<line x1="693" y1="796" x2="421" y2="796" stroke="#3C4043" stroke-width="2" marker-end="url(#arrow-solid)"/>
+<rect x="44" y="846" width="2242" height="32" rx="8" fill="#E8F0FE" stroke="#1A73E8" stroke-width="1.8" stroke-dasharray="6,4"/>
+<text x="1165.0" y="867" text-anchor="middle" font-size="13.5" font-weight="700" fill="#174EA6">PHASE B: RUNTIME ANALYTICS QUERY — ZERO X-TOKEN IN CES MCP, GE AGENT GATEWAY EXT_PROC WIF STS INJECTION &amp; BIGQUERY NATIVE RLS</text>
+<rect x="79.0" y="896" width="686" height="36" rx="4" fill="#FFFFFF" opacity="0.94"/>
+<text x="422.0" y="911" text-anchor="middle" class="step-label">[B1] Partner กดปุ่ม &#x27;Top 5 Stores&#x27; บนเมนู 6 การ์ด → LINE เรียก POST /line/webhook</text>
+<text x="422.0" y="927" text-anchor="middle" class="step-sub">Bridge ตอบ HTTP 200 OK ใน &lt;50ms, เรียก POST /v2/bot/chat/loading/start และเริ่มจับเวลา 22.0s Watchdog</text>
+<line x1="151" y1="938" x2="689" y2="938" stroke="#3C4043" stroke-width="2" marker-end="url(#arrow-solid)"/>
+<rect x="638.5" y="980" width="686" height="36" rx="4" fill="#FFFFFF" opacity="0.94"/>
+<text x="981.5" y="995" text-anchor="middle" class="step-label">[B2] Pre-Check: อ่าน Firestore line_partner_registry/{uid} เพื่อตรวจสอบว่า status == ACTIVE</text>
+<text x="981.5" y="1011" text-anchor="middle" class="step-sub">(หาก status == SUSPENDED → สลับ Rich Menu กลับเป็น 1 การ์ดและยุติการทำงานทันที โดยไม่สร้าง Token ใดๆ)</text>
+<line x1="693" y1="1022" x2="1266" y2="1022" stroke="#3C4043" stroke-width="2" marker-end="url(#arrow-solid)"/>
+<rect x="750.0" y="1064" width="754" height="36" rx="4" fill="#FFFFFF" opacity="0.94"/>
+<text x="1127.0" y="1079" text-anchor="middle" class="step-label">[B3] POST ces.googleapis.com/v1beta/.../sessions/line-{uid}-{partner}-rls23:runSession</text>
+<text x="1127.0" y="1095" text-anchor="middle" class="step-sub">inputs: [{&#x27;variables&#x27;: {&#x27;line_user_id&#x27;: &#x27;U...&#x27;}}, {&#x27;text&#x27;: &#x27;Top 5 stores&#x27;}] — ไม่มี OAuth Token ใน LLM Context!</text>
+<line x1="693" y1="1106" x2="1557" y2="1106" stroke="#3C4043" stroke-width="2" marker-end="url(#arrow-solid)"/>
+<rect x="1311.5" y="1148" width="795" height="36" rx="4" fill="#FFFFFF" opacity="0.94"/>
+<text x="1709.0" y="1163" text-anchor="middle" class="step-label">[B4] CES McpToolset เรียกใช้ ask_iowa_sales_agent(question) ผ่าน GE Agent Gateway</text>
+<text x="1709.0" y="1179" text-anchor="middle" class="step-sub">Tool Pinning ข้าม tools/list (-300ms) | customHeaders ส่งเฉพาะ {&#x27;x-line-user-id&#x27;: &#x27;U...&#x27;} — ไม่มีพารามิเตอร์ x-token!</text>
+<line x1="1561" y1="1190" x2="1853" y2="1190" stroke="#3C4043" stroke-width="2" marker-end="url(#arrow-solid)"/>
+<path d="M 1857 1266 L 1802 1266 L 1802 1300 L 1853 1300" fill="none" stroke="#3C4043" stroke-width="2" marker-end="url(#arrow-solid)"/>
+<rect x="1032" y="1263" width="762" height="39" rx="4" fill="#FFFFFF" opacity="0.94"/>
+<text x="1790" y="1278" text-anchor="end" class="step-label">[B5] GE Agent Gateway บังคับใช้ 1P AuthzPolicies (REQUEST_AUTHZ + CONTENT_AUTHZ)</text>
+<text x="1790" y="1295" text-anchor="end" class="step-sub">Cloud IAP ตรวจสอบ SPIFFE ID/IAM ของผู้เรียก | Model Armor สแกน Prompt Injection (PIJB) และข้อมูลส่วนบุคคล (SDP)</text>
+<rect x="1186.5" y="1332" width="754" height="36" rx="4" fill="#FFFFFF" opacity="0.94"/>
+<text x="1563.5" y="1347" text-anchor="middle" class="step-label">[B6] AGW Envoy ext_proc (/ext-proc/oauth-broker) ตรวจสอบ Firestore ACTIVE และเรียก WIF / IAM STS</text>
+<text x="1563.5" y="1363" text-anchor="middle" class="step-sub">POST sts.googleapis.com/v1/token (RFC 8693) แลกเป็น Short-Lived STS Bearer Token (TTL 5–15 นาทีใน RAM เท่านั้น)</text>
+<line x1="1857" y1="1374" x2="1274" y2="1374" stroke="#3C4043" stroke-width="2" marker-end="url(#arrow-solid)"/>
+<rect x="1532" y="1416" width="754" height="36" rx="4" fill="#FFFFFF" opacity="0.94"/>
+<text x="1909.0" y="1431" text-anchor="middle" class="step-label">[B7] AGW ฉีด Header และส่งต่อ POST /mcp/ ผ่าน Private Service Connect (PSC Interface)</text>
+<text x="1909.0" y="1447" text-anchor="middle" class="step-sub">แนบ Header: Authorization: Bearer &lt;sts_token&gt;, x-agw-verified-partner-id: PARTNER-POLK-001 และ x-agw-rls-policy</text>
+<line x1="1857" y1="1458" x2="2154" y2="1458" stroke="#3C4043" stroke-width="2" marker-end="url(#arrow-solid)"/>
+<path d="M 2158 1534 L 2103 1534 L 2103 1568 L 2154 1568" fill="none" stroke="#3C4043" stroke-width="2" marker-end="url(#arrow-solid)"/>
+<rect x="1367" y="1531" width="728" height="39" rx="4" fill="#FFFFFF" opacity="0.94"/>
+<text x="2091" y="1546" text-anchor="end" class="step-label">[B8] FastMCP เรียก Regional BQCA (locations/us:chat) ด้วย Header: Authorization: Bearer &lt;sts_token&gt;</text>
+<text x="2091" y="1563" text-anchor="end" class="step-sub">BigQuery รัน SQL ภายใต้ SESSION_USER() / Partner SA → บังคับใช้ ROW ACCESS POLICY (เห็นเฉพาะ Store #2633!)</text>
+<rect x="1509.5" y="1600" width="700" height="36" rx="4" fill="#FFFFFF" opacity="0.94"/>
+<text x="1859.5" y="1615" text-anchor="middle" class="step-label">[B9] แปลง Vega-Lite vegaConfig → 2x Retina PNG (vl-convert) → อัปโหลดขึ้น gs://...-line-charts</text>
+<text x="1859.5" y="1631" text-anchor="middle" class="step-sub">ส่งผลลัพธ์ JSON-RPC (answer, generated_sql, chart_url, followups, rls_badge) ย้อนกลับผ่าน AGW มายัง CES</text>
+<line x1="2158" y1="1642" x2="1565" y2="1642" stroke="#3C4043" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#arrow-solid)"/>
+<rect x="45.0" y="1684" width="754" height="36" rx="4" fill="#FFFFFF" opacity="0.94"/>
+<text x="422.0" y="1699" text-anchor="middle" class="step-label">[B10] 22s Cutoff Guard จัดส่ง LINE Flex Bubble (กราฟ 2x PNG + ป้ายกำกับสิทธิ์ Store #2633 + SQL)</text>
+<text x="422.0" y="1715" text-anchor="middle" class="step-sub">กรณี &lt;22.0s: ส่งผ่าน POST /v2/bot/message/reply (ฟรี $0.00!) | กรณี &gt;=22.0s: แจ้งเตือนชั่วคราว + Async Push API</text>
+<line x1="693" y1="1726" x2="155" y2="1726" stroke="#3C4043" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#arrow-solid)"/>
+</svg>
