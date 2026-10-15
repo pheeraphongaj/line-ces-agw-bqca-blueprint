@@ -1,0 +1,100 @@
+{
+  "title": "GCAF + GEAP + GE Agent Gateway Security Reference Architecture (Production OAuth/OIDC & STS)",
+  "subtitle": "Row 1: GEAP 3-Pillar Governance Stack (Build · Scale · Govern)  |  Row 2: Google Cloud Architecture Framework (GCAF) 5 Pillars & SAIF",
+  "rows": [
+    {
+      "columns": [
+        {
+          "label": "1. PRODUCTION OAUTH / OIDC IDP",
+          "color": "blue",
+          "nodes": [
+            { "text": "Firebase Auth / GCIP (Recommended)", "note": "identitytoolkit.googleapis.com · 50k Free MAU · MFA", "color": "blue", "core": true },
+            { "text": "LINE Login OIDC Federation", "note": "access.line.me federated into GCIP (1-Tap LINE SSO)", "color": "blue", "core": true },
+            { "text": "Enterprise BYO-IdP (Auth0 / Okta)", "note": "OIDC / SAML 2.0 federated into GCIP or GCP WIF", "color": "blue" },
+            { "text": "beforeSignIn Blocking Function", "note": "Injects {partner_id, store_number} into OIDC JWT", "color": "blue" }
+          ]
+        },
+        {
+          "label": "2. TOKEN STORAGE & WIF STS",
+          "color": "green",
+          "nodes": [
+            { "text": "GE Agent Identity Auth Manager", "note": "Managed 2LO/3LO Vault (Cloud KMS CMEK Encrypted)", "color": "green", "core": true },
+            { "text": "Workforce Identity Federation (WIF)", "note": "RFC 8693 Token Exchange (sts.googleapis.com/v1/token)", "color": "green", "core": true },
+            { "text": "RAM-Only Short-Lived STS Token", "note": "5–15 min TTL in Memory · ZERO Tokens in gs:// or LLM", "color": "green", "core": true },
+            { "text": "Firestore Entitlement Binding", "note": "Stores ONLY uid ↔ oidc_sub, partner_id, status=ACTIVE", "color": "green" }
+          ]
+        },
+        {
+          "label": "3. GEAP & GE AGENT GATEWAY",
+          "color": "purple",
+          "nodes": [
+            { "text": "GE Agent Gateway (Ingress & Egress)", "note": "Air Traffic Control for MCP & A2A (JSON-RPC / SSE)", "color": "purple", "core": true },
+            { "text": "Agent Registry & MCP Registry", "note": "SPIFFE ID (principal://...) + McpServer Tool Catalog", "color": "purple", "core": true },
+            { "text": "Model Armor (CONTENT_AUTHZ)", "note": "Inline Prompt Injection (PIJB), Jailbreak & SDP/DLP", "color": "purple", "core": true },
+            { "text": "Service Extension (Envoy ext_proc)", "note": "Intercepts x-line-user-id → Injects Bearer <sts_tkn>", "color": "purple", "core": true }
+          ]
+        },
+        {
+          "label": "4. ZERO-TRUST DATA PLANE (VPC-SC)",
+          "color": "orange",
+          "nodes": [
+            { "text": "VPC Service Controls Perimeter", "note": "Encloses Vertex AI, CES, Cloud Run, BQCA & BigQuery", "color": "orange", "core": true },
+            { "text": "PSC Interface & Private Cloud DNS", "note": "agent-gateway-na → 10.10.20.2 (run.app & googleapis)", "color": "orange" },
+            { "text": "FastMCP → BQCA Regional API", "note": "Verifies AGW-injected Bearer token · Zero x-token arg", "color": "orange", "core": true },
+            { "text": "BigQuery Native ROW ACCESS POLICY", "note": "WIF SESSION_USER() + rls_partner_entitlements table", "color": "orange", "core": true }
+          ]
+        }
+      ],
+      "arrows": [
+        { "from": 0, "to": 1, "label": "OIDC JWT\n(3LO / SSO)", "dir": "right" },
+        { "from": 1, "to": 2, "label": "WIF / STS Token\n(RFC 8693)", "dir": "both" },
+        { "from": 2, "to": 3, "label": "Injected Bearer\n+ PSC Egress", "dir": "both" }
+      ]
+    },
+    {
+      "columns": [
+        {
+          "label": "GCAF 1: SECURITY, PRIVACY & SAIF",
+          "color": "red",
+          "nodes": [
+            { "text": "Zero-Token LLM Context (SAIF)", "note": "CES passes ONLY x-line-user-id; zero ya29 in prompt", "color": "red", "core": true },
+            { "text": "PoLP & IAM Guardrail", "note": "No project-level filteredDataViewer; policy-only grant", "color": "red", "core": true },
+            { "text": "Model Armor + VPC-SC + CMEK", "note": "Blocks prompt injection, PII exfiltration & cross-tenant leak", "color": "red" }
+          ]
+        },
+        {
+          "label": "GCAF 2: RELIABILITY & RESILIENCE",
+          "color": "blue",
+          "nodes": [
+            { "text": "22s LINE replyToken Watchdog", "note": "<22s Free Reply API · >=22s Async Push Fallback", "color": "blue", "core": true },
+            { "text": "Regional Endpoint & Multi-Zone HA", "note": "geminidataanalytics.us.rep + Cloud Run min-instances", "color": "blue" },
+            { "text": "Instant Tenant Kill-Switch", "note": "status=SUSPENDED in Firestore → 403 at AGW ext_proc", "color": "blue", "core": true }
+          ]
+        },
+        {
+          "label": "GCAF 3: OPERATIONAL EXCELLENCE",
+          "color": "green",
+          "nodes": [
+            { "text": "Agent & MCP Registry Catalog", "note": "Central discovery, version pinning & schema governance", "color": "green", "core": true },
+            { "text": "End-to-End Cloud Audit Logs", "note": "Tracks LINE uid → WIF principal → BigQuery jobId", "color": "green", "core": true },
+            { "text": "Zero-DDL Partner Onboarding", "note": "1 SQL INSERT into rls_partner_entitlements (10k+ scale)", "color": "green" }
+          ]
+        },
+        {
+          "label": "GCAF 4 & 5: COST & PERFORMANCE",
+          "color": "purple",
+          "nodes": [
+            { "text": "CES MCP Tool Pinning", "note": "Skips tools/list round-trip on every turn (-300ms)", "color": "purple", "core": true },
+            { "text": "Partitioned & Clustered Fact Table", "note": "DATE(date) + (county, store_number) + 100MB byte cap", "color": "purple", "core": true },
+            { "text": "BQCA Per-User Daily Token Quotas", "note": "PaidInput/OutputTokensPerDayPerProjectPerUser caps", "color": "purple" }
+          ]
+        }
+      ],
+      "arrows": [
+        { "from": 0, "to": 1, "label": "Defense in Depth", "dir": "right" },
+        { "from": 1, "to": 2, "label": "Full Traceability", "dir": "right" },
+        { "from": 2, "to": 3, "label": "FinOps & Low Latency", "dir": "right" }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 {
-  "title": "End-to-End Dataflow: LINE OA → Hybrid Auth & Firestore → CES → GEAP AGW (Stateless STS) → BQCA & BigQuery RLS",
-  "subtitle": "Phase A: Hybrid Onboarding (Partner CIP vs Internal IAP)  |  Phase B: Zero-Token LLM, Stateless RAM STS & Store-Level Native RLS",
+  "title": "End-to-End Dataflow: LINE OA → GCIP (Firebase Auth) / Auth0 / IAP → CES → GE Agent Gateway (WIF STS) → BQCA & BQ RLS",
+  "subtitle": "GCAF + GEAP Best Practice: Zero x-token in CES MCP  |  GE Agent Gateway ext_proc Brokers & Injects STS Bearer Token on the Wire",
   "rows": [
     {
       "columns": [
@@ -10,25 +10,26 @@
           "nodes": [
             { "text": "Default 1-Card Rich Menu", "note": "Shown to all unauthenticated LINE users", "color": "orange", "core": true },
             { "text": "Tap Login Button ('เข้าสู่ระบบ')", "note": "Sends message event to POST /line/webhook", "color": "orange" },
-            { "text": "HMAC-SHA256 Signed State", "note": "Captures source.userId · Signs uid:exp", "color": "orange", "core": true }
+            { "text": "HMAC-SHA256 Signed State", "note": "Binds source.userId · ?openExternalBrowser=1", "color": "orange", "core": true }
           ]
         },
         {
-          "label": "PHASE A2. DUAL IDENTITY GATE",
+          "label": "PHASE A2. PRODUCTION OAUTH / OIDC IDP",
           "color": "blue",
           "nodes": [
-            { "text": "External B2B Partner Portal", "note": "/auth/portal (Partner CIP · No GCP IAM needed)", "color": "blue", "core": true },
-            { "text": "Internal Employee SSO Gate", "note": "/auth/login behind Cloud IAP (ES256 JWT)", "color": "blue", "core": true },
-            { "text": "External Browser Enforcement", "note": "?openExternalBrowser=1 (Bypasses WebView 403)", "color": "blue" }
+            { "text": "GCIP / Firebase Authentication", "note": "Primary GCP CIAM (50k Free MAU) · LINE OIDC + MFA", "color": "blue", "core": true },
+            { "text": "Enterprise BYO-IdP (Auth0 / Okta)", "note": "Federated via OIDC / SAML into GCIP or GCP WIF", "color": "blue", "core": true },
+            { "text": "Internal Employee SSO (Cloud IAP)", "note": "Google Workspace · X-Goog-IAP-JWT-Assertion", "color": "blue" },
+            { "text": "beforeSignIn Blocking Function", "note": "Injects Custom Claims (partner_id, store_number)", "color": "blue" }
           ]
         },
         {
-          "label": "PHASE A3. FIRESTORE REGISTRY",
+          "label": "PHASE A3. TOKEN VAULT & REGISTRY",
           "color": "green",
           "nodes": [
-            { "text": "line_partner_accounts", "note": "Partner Tier · Allowed Store/County · Target SA", "color": "green", "core": true },
-            { "text": "line_partner_registry/{uid}", "note": "Binds line_user_id ↔ partner_id & status=ACTIVE", "color": "green", "core": true },
-            { "text": "Zero Stored OAuth Tokens!", "note": "No raw/encrypted ya29... tokens on gs:// bucket", "color": "green" }
+            { "text": "GE Agent Identity Auth Manager", "note": "KMS-Encrypted 3LO Refresh Token Vault (Zero gs://)", "color": "green", "core": true },
+            { "text": "Firestore line_partner_registry", "note": "Stores ONLY uid ↔ oidc_sub, partner_id, status=ACTIVE", "color": "green", "core": true },
+            { "text": "BigQuery rls_partner_entitlements", "note": "Maps principal_email ↔ store_number (10k+ Scale)", "color": "green" }
           ]
         },
         {
@@ -42,8 +43,8 @@
         }
       ],
       "arrows": [
-        { "from": 0, "to": 1, "label": "Signed Auth URL\n(Ext Browser)", "dir": "right" },
-        { "from": 1, "to": 2, "label": "Verify CIP / IAP\n& Save Metadata", "dir": "right" },
+        { "from": 0, "to": 1, "label": "Signed OIDC URL\n(Ext Browser)", "dir": "right" },
+        { "from": 1, "to": 2, "label": "OIDC ID Token\n+ Custom Claims", "dir": "right" },
         { "from": 2, "to": 3, "label": "Bind ACTIVE\n& Unlock 6-Card", "dir": "right" }
       ]
     },
@@ -54,46 +55,45 @@
           "color": "orange",
           "nodes": [
             { "text": "6-Card Tap / Analytics Query", "note": "POST /line/webhook (Verifies X-Line-Signature)", "color": "orange", "core": true },
-            { "text": "<50ms 200 OK & Loading Dots", "note": "Calls /v2/bot/chat/loading/start (20s animation)", "color": "orange" },
-            { "text": "Firestore ACTIVE Pre-Check", "note": "If SUSPENDED → locks back to 1-Card Menu (403)", "color": "orange", "core": true },
-            { "text": "22s Free replyToken Watchdog", "note": "<22s: Free Reply API ($0) · >=22s: Push Fallback", "color": "orange" }
+            { "text": "Firestore ACTIVE Pre-Check", "note": "Checks status=ACTIVE · Zero Token Minting Here!", "color": "orange", "core": true },
+            { "text": "<50ms 200 OK & 22s Cutoff Guard", "note": "Loading Dots · <22s Free Reply ($0) / >=22s Push", "color": "orange" }
           ]
         },
         {
-          "label": "PHASE B2. CX AGENT STUDIO (CES)",
+          "label": "PHASE B2. CES (ZERO X-TOKEN)",
           "color": "purple",
           "nodes": [
-            { "text": "Root Supervisor Agent (v2.0)", "note": "Session ID isolated per (line_user_id, partner_id)", "color": "purple", "core": true },
-            { "text": "2-Element SessionInput List", "note": "[{\"variables\": {\"line_user_id\"}}, {\"text\": \"...\"}]", "color": "purple" },
-            { "text": "Zero-Token LLM Context", "note": "LLM never sees ya29... OAuth tokens in prompt", "color": "purple", "core": true },
-            { "text": "CES McpToolset (Pinned Tools)", "note": "Forwards customHeaders: x-line-user-id to AGW", "color": "purple" }
+            { "text": "Root Supervisor Agent (CES)", "note": "Session isolated per (line_user_id, partner_id)", "color": "purple", "core": true },
+            { "text": "Zero-Token LLM & Session Vars", "note": "inputs: [{\"variables\": {\"line_user_id\"}}, {\"text\"}]", "color": "purple", "core": true },
+            { "text": "CES McpToolset (NO x-token!)", "note": "customHeaders: ONLY x-line-user-id → Agent Gateway", "color": "purple", "core": true },
+            { "text": "MCP Tool Schema (question Only)", "note": "ask_iowa_sales_agent(question) · Zero auth args", "color": "purple" }
           ]
         },
         {
-          "label": "PHASE B3. GEAP AGW & STS BROKER",
+          "label": "PHASE B3. GE AGENT GATEWAY & STS",
           "color": "blue",
           "nodes": [
-            { "text": "GEAP Agent Gateway (MCP)", "note": "CLIENT_TO_AGENT · Agent Registry Governance", "color": "blue", "core": true },
-            { "text": "1P AuthzExtensions (IAP & DLP)", "note": "REQUEST_AUTHZ (IAP) + CONTENT_AUTHZ (Model Armor)", "color": "blue" },
-            { "text": "Stateless IAM STS Token Broker", "note": "/ext-proc/oauth-broker checks Firestore ACTIVE", "color": "blue", "core": true },
-            { "text": "RAM-Only Partner Token Mint", "note": "iamcredentials generateAccessToken (or WIF STS)", "color": "blue", "core": true }
+            { "text": "GE Agent Gateway (Air Traffic Ctrl)", "note": "CLIENT_TO_AGENT · Agent Registry + MCP Registry", "color": "blue", "core": true },
+            { "text": "1P AuthzPolicies (IAP + Model Armor)", "note": "REQUEST_AUTHZ (IAM/SPIFFE) + CONTENT_AUTHZ (DLP)", "color": "blue", "core": true },
+            { "text": "Service Extension (Envoy ext_proc)", "note": "POST /ext-proc/oauth-broker intercepts /mcp/ call", "color": "blue", "core": true },
+            { "text": "WIF / IAM STS Token Exchange", "note": "sts.googleapis.com (RFC 8693) → Injects Bearer Token", "color": "blue", "core": true }
           ]
         },
         {
-          "label": "PHASE B4. FASTMCP, BQCA & BQ RLS",
+          "label": "PHASE B4. VPC-SC, FASTMCP & BQ RLS",
           "color": "green",
           "nodes": [
-            { "text": "FastMCP Server (POST /mcp/)", "note": "Receives injected Partner Bearer token + RLS scope", "color": "green", "core": true },
-            { "text": "BQCA Regional Streaming API", "note": "geminidataanalytics.us.rep (:chat) w/ Partner Token", "color": "green", "core": true },
-            { "text": "BigQuery Native ROW ACCESS POLICY", "note": "Storage Engine filters Store #2633 / #3773 / ALL", "color": "green", "core": true },
-            { "text": "Vega-Lite → PNG & Flex Bubble", "note": "vl-convert 2x DPI PNG → GCS → LINE Flex Reply", "color": "green" }
+            { "text": "FastMCP Server (POST /mcp/)", "note": "Reads AGW-injected Authorization: Bearer <sts_tkn>", "color": "green", "core": true },
+            { "text": "BQCA Regional Streaming API", "note": "geminidataanalytics.us.rep (:chat) w/ STS Token", "color": "green", "core": true },
+            { "text": "BigQuery Native ROW ACCESS POLICY", "note": "Storage Engine filters Store #2633 / WIF SESSION_USER()", "color": "green", "core": true },
+            { "text": "VPC-SC Perimeter & PNG Delivery", "note": "vl-convert 2x PNG → GCS → LINE Flex Bubble", "color": "green" }
           ]
         }
       ],
       "arrows": [
-        { "from": 0, "to": 1, "label": "CES :runSession\n(x-line-user-id)", "dir": "both" },
-        { "from": 1, "to": 2, "label": "MCP JSON-RPC\n+ x-line-user-id", "dir": "both" },
-        { "from": 2, "to": 3, "label": "RAM STS Bearer\n+ RLS Headers", "dir": "both" }
+        { "from": 0, "to": 1, "label": "CES :runSession\n(x-line-user-id ONLY)", "dir": "both" },
+        { "from": 1, "to": 2, "label": "MCP JSON-RPC\n(NO x-token!)", "dir": "both" },
+        { "from": 2, "to": 3, "label": "AGW Injects\nBearer <sts_tkn>", "dir": "both" }
       ]
     }
   ]

@@ -1077,8 +1077,17 @@ async def api_seed_partners():
 
 
 # =====================================================================
-# 2. MCP Streamable HTTP Endpoint (/mcp and /mcp/) for CES McpToolset & AGW
+# 2. MCP Streamable HTTP Endpoint (/mcp and /mcp/) Behind GE Agent Gateway
 # =====================================================================
+# SECURITY BEST PRACTICE (GCAF + GEAP + GE Agent Gateway):
+# - MCP_TOOL_SCHEMA exposes ONLY business parameters ("question") to the LLM.
+# - ZERO "x-token", "user_oauth_token", or identity parameters in tool inputSchema!
+# - CES McpToolset forwards ONLY `customHeaders: {"x-line-user-id": "$context.variables.line_user_id"}`
+#   to GE Agent Gateway (`agent-gateway-in`).
+# - GE Agent Gateway invokes its Service Extension (`POST /ext-proc/oauth-broker`) +
+#   Model Armor (`CONTENT_AUTHZ`), exchanges the identity via Workforce Identity Federation (WIF) /
+#   IAM STS (`sts.googleapis.com` / `iamcredentials.googleapis.com`) in RAM, and injects
+#   `Authorization: Bearer <sts_token>` + `x-agw-*` headers into `POST /mcp/`.
 MCP_TOOL_SCHEMA = {
     "name": "ask_iowa_sales_agent",
     "description": (
@@ -1098,15 +1107,77 @@ MCP_TOOL_SCHEMA = {
                     "Natural language analytics or chart question from the user."
                 ),
             },
-            "line_user_id": {
-                "type": "string",
-                "title": "Line User Id",
-                "description": "Optional LINE user ID for context propagation.",
-                "default": "",
-            },
         },
     },
 }
+
+
+def resolve_agw_injected_context(request: Request) -> Dict[str, str]:
+  """Extracts the STS Bearer token and RLS context injected by GE Agent Gateway Service Extension.
+
+  In production, GE Agent Gateway (`networkservices.googleapis.com/AgentGateway`) calls
+  `POST /ext-proc/oauth-broker` (Envoy ext_proc Callout) BEFORE forwarding the request
+  to `POST /mcp/`, mutating the upstream HTTP headers to inject:
+    - `authorization: Bearer <sts_access_token>`
+    - `x-agw-verified-partner-id: <partner_id>`
+    - `x-agw-rls-policy: <rls_policy_name>`
+    - `x-agw-rls-scope: <rls_scope>`
+    - `x-agw-impersonated-sa: <impersonated_sa>`
+    - `x-agw-user-email: <user_email>`
+  If a local test calls `/mcp/` directly without an upstream Envoy proxy, this helper
+  executes the same AGW ext_proc broker lookup at the HTTP transport boundary so the MCP
+  tool handler never touches token vaults or mints tokens itself.
+  """
+  auth_hdr = request.headers.get("authorization", "")
+  agw_marker = request.headers.get("x-agw-ext-broker", "")
+  line_uid = request.headers.get("x-line-user-id", "").strip()
+
+  if agw_marker and auth_hdr.lower().startswith("bearer "):
+    return {
+        "line_user_id": line_uid,
+        "oauth_token": auth_hdr[7:].strip(),
+        "user_email": request.headers.get("x-agw-user-email", ""),
+        "partner_id": request.headers.get("x-agw-verified-partner-id", ""),
+        "rls_policy_name": request.headers.get("x-agw-rls-policy", "rls_internal_all_access"),
+        "rls_scope": request.headers.get("x-agw-rls-scope", "ALL_IOWA"),
+        "rls_sql_filter": request.headers.get("x-agw-rls-filter", "TRUE"),
+        "impersonated_sa": request.headers.get(
+            "x-agw-impersonated-sa",
+            "123456789012-compute@developer.gserviceaccount.com",
+        ),
+        "token_source": "ge_agent_gateway_ext_proc_header_injection",
+    }
+
+  # Transport-boundary fallback when simulating GE Agent Gateway ext_proc locally:
+  if line_uid:
+    broker_sess = get_user_auth_session(line_uid)
+    if broker_sess:
+      return {
+          "line_user_id": line_uid,
+          "oauth_token": broker_sess.get("oauth2_access_token", ""),
+          "user_email": broker_sess.get("user_email", ""),
+          "partner_id": broker_sess.get("partner_id", ""),
+          "rls_policy_name": broker_sess.get("rls_policy_name", "rls_internal_all_access"),
+          "rls_scope": broker_sess.get("rls_scope", "ALL_IOWA"),
+          "rls_sql_filter": broker_sess.get("rls_sql_filter", "TRUE"),
+          "impersonated_sa": broker_sess.get(
+              "impersonated_sa",
+              "123456789012-compute@developer.gserviceaccount.com",
+          ),
+          "token_source": "ge_agent_gateway_ext_proc_callout_broker",
+      }
+
+  return {
+      "line_user_id": line_uid,
+      "oauth_token": "",
+      "user_email": "",
+      "partner_id": "",
+      "rls_policy_name": "rls_internal_all_access",
+      "rls_scope": "ALL_IOWA",
+      "rls_sql_filter": "TRUE",
+      "impersonated_sa": "123456789012-compute@developer.gserviceaccount.com",
+      "token_source": "unauthenticated_default",
+  }
 
 
 @app.get("/mcp")
@@ -1115,8 +1186,9 @@ async def mcp_get_info():
   return JSONResponse(
       content={
           "name": "iowa-bqca-mcp",
-          "version": "2.3.0-bq-native-rls",
+          "version": "2.4.0-gcaf-geap-agw",
           "transport": "streamable-http",
+          "auth_enforcement": "GE_AGENT_GATEWAY_EXT_PROC_STS_INJECTION",
       }
   )
 
@@ -1134,11 +1206,7 @@ async def mcp_streamable_http(request: Request):
   session_id = request.headers.get("mcp-session-id") or uuid.uuid4().hex
   req_base = f"https://{request.headers.get('host', '')}"
   base_url = get_effective_base_url(req_base)
-  header_line_user_id = request.headers.get("x-line-user-id", "")
-  header_user_token = request.headers.get("x-goog-user-token", "")
-  header_user_email = request.headers.get("x-goog-user-email", "")
-  header_partner_id = request.headers.get("x-partner-id", "")
-  header_rls_scope = request.headers.get("x-partner-rls-scope", "")
+  agw_ctx = resolve_agw_injected_context(request)
 
   async def handle_single_rpc(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     method = msg.get("method", "")
@@ -1155,7 +1223,7 @@ async def mcp_streamable_http(request: Request):
               "capabilities": {"tools": {"listChanged": False}},
               "serverInfo": {
                   "name": "iowa-bqca-mcp",
-                  "version": "2.3.0-bq-native-rls",
+                  "version": "2.4.0-gcaf-geap-agw",
               },
           },
       }
@@ -1182,39 +1250,20 @@ async def mcp_streamable_http(request: Request):
             },
         }
       question = args.get("question", "")
-      user_id = args.get("line_user_id") or header_line_user_id
-      resolved_token = header_user_token
-      resolved_email = header_user_email
-      resolved_partner_id = header_partner_id
-      resolved_rls_scope = header_rls_scope
-      resolved_rls_policy = "rls_internal_all_access"
-      resolved_rls_filter = "TRUE"
-      resolved_sa = "123456789012-compute@developer.gserviceaccount.com"
-      token_source = "agw_custom_header"
-      if user_id:
-        broker_sess = get_user_auth_session(user_id)
-        if broker_sess:
-          resolved_token = broker_sess.get("oauth2_access_token", "") or resolved_token
-          resolved_email = broker_sess.get("user_email", "") or resolved_email
-          resolved_partner_id = broker_sess.get("partner_id", "") or resolved_partner_id
-          resolved_rls_scope = broker_sess.get("rls_scope", "") or resolved_rls_scope
-          resolved_rls_policy = broker_sess.get("rls_policy_name", "rls_internal_all_access")
-          resolved_rls_filter = broker_sess.get("rls_sql_filter", "TRUE")
-          resolved_sa = broker_sess.get("impersonated_sa", resolved_sa)
-          token_source = "agw_service_extension_firestore_sts_broker"
+      user_id = agw_ctx["line_user_id"]
       try:
         result = await execute_iowa_bqca_query(
             question,
             base_url=base_url,
-            oauth_token=resolved_token,
-            user_email=resolved_email,
-            partner_id=resolved_partner_id,
-            rls_scope=resolved_rls_scope,
-            rls_policy_name=resolved_rls_policy,
-            rls_sql_filter=resolved_rls_filter,
-            impersonated_sa=resolved_sa,
+            oauth_token=agw_ctx["oauth_token"],
+            user_email=agw_ctx["user_email"],
+            partner_id=agw_ctx["partner_id"],
+            rls_scope=agw_ctx["rls_scope"],
+            rls_policy_name=agw_ctx["rls_policy_name"],
+            rls_sql_filter=agw_ctx["rls_sql_filter"],
+            impersonated_sa=agw_ctx["impersonated_sa"],
         )
-        result["token_broker_source"] = token_source
+        result["token_broker_source"] = agw_ctx["token_source"]
         if user_id:
           TURN_ARTIFACTS[user_id] = result
         TURN_ARTIFACTS["__latest__"] = result
@@ -1490,7 +1539,6 @@ async def run_ces_session(
     line_user_id: str,
     user_text: str,
     base_url: str,
-    user_oauth_token: str = "",
     user_email: str = "",
     partner_id: str = "",
     rls_scope: str = "",
@@ -1503,10 +1551,13 @@ async def run_ces_session(
 
   ces_app_id = get_effective_ces_app_id()
   if not ces_app_id:
+    sts_info = get_stateless_sts_token(
+        partner_id or "default", target_sa=impersonated_sa
+    )
     art = await execute_iowa_bqca_query(
         user_text,
         base_url=base_url,
-        oauth_token=user_oauth_token,
+        oauth_token=sts_info["access_token"],
         user_email=user_email,
         partner_id=partner_id,
         rls_scope=rls_scope,
@@ -1516,18 +1567,16 @@ async def run_ces_session(
     )
     return {"text": art["answer"], "artifact": art, "via": "bqca_direct"}
 
-  ces_caller_token = (
-      user_oauth_token.strip()
-      if user_oauth_token and user_oauth_token.strip().startswith("ya29.")
-      else get_gcp_bearer_token()
-  )
+  # Cloud Run Host Service Account calls CES SessionService.RunSession.
+  # ZERO user OAuth token is ever passed into CES or LLM variables!
+  ces_host_token = get_gcp_bearer_token()
   safe_partner = (
       (partner_id or "internal")
       .lower()
       .replace("_", "-")
       .replace(" ", "-")
   )
-  session_id = f"line-{line_user_id}-{safe_partner}-rls23"
+  session_id = f"line-{line_user_id}-{safe_partner}-rls24"
   session_path = (
       f"projects/{PROJECT_ID}/locations/{CES_LOCATION}/apps/{ces_app_id}/"
       f"sessions/{session_id}"
@@ -1535,7 +1584,10 @@ async def run_ces_session(
   ces_url = f"https://ces.googleapis.com/v1beta/{session_path}:runSession"
 
   # Trap #3: SessionInput has oneof input_type { text, variables }
-  # Notice: Zero OAuth tokens are passed into LLM variables! Only line_user_id & metadata.
+  # Notice: ONLY line_user_id is passed in CES session variables.
+  # CES McpToolset forwards `x-line-user-id` to GE Agent Gateway (`agent-gateway-in`),
+  # where the Service Extension (`POST /ext-proc/oauth-broker`) mints and injects
+  # `Authorization: Bearer <sts_token>` into the upstream MCP request.
   payload = {
       "config": {
           "session": session_path,
@@ -1545,7 +1597,6 @@ async def run_ces_session(
           {
               "variables": {
                   "line_user_id": line_user_id,
-                  "user_email": user_email,
               }
           },
           {"text": user_text},
@@ -1557,7 +1608,7 @@ async def run_ces_session(
       resp = await client.post(
           ces_url,
           headers={
-              "Authorization": f"Bearer {ces_caller_token}",
+              "Authorization": f"Bearer {ces_host_token}",
               "Content-Type": "application/json",
               "X-Goog-User-Project": PROJECT_ID,
           },
@@ -1567,12 +1618,15 @@ async def run_ces_session(
       data = resp.json()
   except Exception as e:
     logger.warning(
-        "CES runSession returned error (%s); falling back to BQCA direct", e
+        "CES runSession returned error (%s); falling back to AGW STS -> BQCA", e
+    )
+    sts_info = get_stateless_sts_token(
+        partner_id or "default", target_sa=impersonated_sa
     )
     art = await execute_iowa_bqca_query(
         user_text,
         base_url=base_url,
-        oauth_token=user_oauth_token,
+        oauth_token=sts_info["access_token"],
         user_email=user_email,
         partner_id=partner_id,
         rls_scope=rls_scope,
@@ -1610,7 +1664,7 @@ async def run_ces_session(
       "rls_scope": rls_scope or "ALL_IOWA",
       "rls_policy_name": rls_policy_name or "rls_internal_all_access",
       "impersonated_sa": impersonated_sa or "123456789012-compute@developer.gserviceaccount.com",
-      "oauth_token_propagated": bool(ces_caller_token),
+      "token_broker": "GE_AGENT_GATEWAY_EXT_PROC_STS",
   }
 
 
@@ -1639,15 +1693,21 @@ async def process_line_turn(
     )
     return
 
-  # 2. Check Per-User Firestore Partner Registry / Internal IAP State
-  auth_record = get_user_auth_session(line_user_id)
-  if not auth_record or normalized in (
-      "เข้าสู่ระบบด้วย google iap",
-      "เข้าสู่ระบบ",
-      "login",
-      "partner login",
+  # 2. Check Per-User Firestore Partner Registry / Internal IAP State (Pre-Check Only — Zero Token Minting in Webhook!)
+  auth_record = firestore_get_doc(PARTNER_REGISTRY_COLLECTION, line_user_id)
+  if (
+      not auth_record
+      or not auth_record.get("authenticated")
+      or auth_record.get("status", "ACTIVE") != "ACTIVE"
+      or normalized
+      in (
+          "เข้าสู่ระบบด้วย google iap",
+          "เข้าสู่ระบบ",
+          "login",
+          "partner login",
+      )
   ):
-    if not auth_record:
+    if not auth_record or auth_record.get("status") != "ACTIVE":
       await set_user_richmenu(line_user_id, LOGIN_RICHMENU_ID)
     login_card = build_iap_login_flex_message(line_user_id, base_url)
     sent = await send_line_reply(reply_token, [login_card])
@@ -1655,15 +1715,14 @@ async def process_line_turn(
       await send_line_push(line_user_id, [login_card])
     return
 
-  # 3. Authenticated Partner/Employee -> Proceed to CES & BQCA with Stateless STS Token
-  user_oauth_token = auth_record.get("oauth2_access_token", "")
+  # 3. Authenticated Partner/Employee -> Call CES with ONLY line_user_id (GE Agent Gateway Brokers STS Token)
   user_email = auth_record.get("user_email", "")
   partner_id = auth_record.get("partner_id", "")
   rls_scope = auth_record.get("rls_scope", "ALL_IOWA")
   rls_policy_name = auth_record.get("rls_policy_name", "rls_internal_all_access")
   rls_sql_filter = auth_record.get("rls_sql_filter", "TRUE")
   impersonated_sa = auth_record.get(
-      "impersonated_sa", "123456789012-compute@developer.gserviceaccount.com"
+      "service_account", "123456789012-compute@developer.gserviceaccount.com"
   )
   await start_line_loading(line_user_id, seconds=60)
 
@@ -1693,7 +1752,6 @@ async def process_line_turn(
         line_user_id,
         user_text,
         base_url,
-        user_oauth_token=user_oauth_token,
         user_email=user_email,
         partner_id=partner_id,
         rls_scope=rls_scope,
@@ -1797,8 +1855,8 @@ async def test_turn(request: Request):
   req_base = f"https://{request.headers.get('host', '')}"
   base_url = get_effective_base_url(req_base)
 
-  auth_record = get_user_auth_session(user_id)
-  if not auth_record and not bypass_auth:
+  auth_record = firestore_get_doc(PARTNER_REGISTRY_COLLECTION, user_id)
+  if (not auth_record or auth_record.get("status") != "ACTIVE") and not bypass_auth:
     return {
         "authenticated": False,
         "action": "partner_or_iap_login_required",
@@ -1808,11 +1866,6 @@ async def test_turn(request: Request):
         "line_message": build_iap_login_flex_message(user_id, base_url),
     }
 
-  oauth_tok = (
-      auth_record.get("oauth2_access_token", "")
-      if auth_record
-      else get_gcp_bearer_token()
-  )
   u_email = (
       auth_record.get("user_email", "demo-bypass@your-agent-host-project-id")
       if auth_record
@@ -1823,7 +1876,7 @@ async def test_turn(request: Request):
   r_pol = auth_record.get("rls_policy_name", "rls_internal_all_access") if auth_record else "rls_internal_all_access"
   r_flt = auth_record.get("rls_sql_filter", "TRUE") if auth_record else "TRUE"
   imp_sa = (
-      auth_record.get("impersonated_sa", "123456789012-compute@developer.gserviceaccount.com")
+      auth_record.get("service_account", "123456789012-compute@developer.gserviceaccount.com")
       if auth_record
       else "123456789012-compute@developer.gserviceaccount.com"
   )
@@ -1832,7 +1885,6 @@ async def test_turn(request: Request):
       user_id,
       text,
       base_url,
-      user_oauth_token=oauth_tok,
       user_email=u_email,
       partner_id=p_id,
       rls_scope=r_scope,
@@ -1861,7 +1913,7 @@ async def test_turn(request: Request):
       "rls_sql_filter": r_flt,
       "impersonated_sa": imp_sa,
       "token_storage": "STATELESS_RAM_STS_NO_GCS",
-      "oauth_token_propagated": True,
+      "token_broker": "GE_AGENT_GATEWAY_EXT_PROC_STS",
       "via": ces_res.get("via"),
       "ces_app_id": get_effective_ces_app_id(),
       "summary_text": ces_res["text"],
@@ -1872,15 +1924,18 @@ async def test_turn(request: Request):
 
 @app.post("/ext-proc/oauth-broker")
 async def agw_service_extension_oauth_broker(request: Request):
-  """Envoy ext_proc (EXT_PROC_JSON) Callout Extension for GEAP Agent Gateway.
+  """Envoy ext_proc (EXT_PROC_JSON) Callout Extension for GE Agent Gateway.
 
-  1. Reads `x-line-user-id` from the incoming MCP request headers.
+  1. Reads `x-line-user-id` from the incoming MCP request headers (forwarded by CES McpToolset).
+     Notice: CES McpToolset NEVER sends any `x-token` header!
   2. Queries Cloud Firestore (`line_partner_registry/{line_user_id}`) to verify
      `status == "ACTIVE"` and retrieve `partner_id`, `service_account`, and `rls_policy_name`.
-  3. Performs Stateless Token Brokering (impersonating the Partner's dedicated Service Account
-     in RAM only via `iamcredentials.googleapis.com`, with ZERO tokens stored on GCS or Firestore)
-     and returns Envoy HeaderMutation instructions injecting `Authorization: Bearer ya29...`,
-     `x-partner-id`, `x-partner-rls-policy`, and `x-partner-rls-scope` into downstream MCP & BQCA requests.
+  3. Performs Stateless Token Brokering (via Workforce Identity Federation RFC 8693 STS
+     `sts.googleapis.com/v1/token` or `iamcredentials.googleapis.com` in RAM only,
+     with ZERO tokens stored on GCS or Firestore) and returns Envoy HeaderMutation
+     instructions injecting `authorization: Bearer ya29...`, `x-agw-verified-partner-id`,
+     `x-agw-rls-policy`, `x-agw-rls-scope`, `x-agw-impersonated-sa`, and `x-agw-user-email`
+     into the upstream `POST /mcp/` request.
   """
   body = await request.json()
   req_headers_raw = (
@@ -1926,6 +1981,7 @@ async def agw_service_extension_oauth_broker(request: Request):
   partner_id = auth_record.get("partner_id", "")
   rls_scope = auth_record.get("rls_scope", "ALL_IOWA")
   rls_policy = auth_record.get("rls_policy_name", "rls_internal_all_access")
+  rls_filter = auth_record.get("rls_sql_filter", "TRUE")
   impersonated_sa = auth_record.get(
       "impersonated_sa", "123456789012-compute@developer.gserviceaccount.com"
   )
@@ -1945,42 +2001,42 @@ async def agw_service_extension_oauth_broker(request: Request):
                       },
                       {
                           "header": {
-                              "key": "x-goog-user-token",
-                              "value": oauth_token,
-                          },
-                          "append": False,
-                      },
-                      {
-                          "header": {
-                              "key": "x-goog-user-email",
+                              "key": "x-agw-user-email",
                               "value": user_email,
                           },
                           "append": False,
                       },
                       {
                           "header": {
-                              "key": "x-partner-id",
+                              "key": "x-agw-verified-partner-id",
                               "value": partner_id,
                           },
                           "append": False,
                       },
                       {
                           "header": {
-                              "key": "x-partner-rls-policy",
+                              "key": "x-agw-rls-policy",
                               "value": rls_policy,
                           },
                           "append": False,
                       },
                       {
                           "header": {
-                              "key": "x-partner-impersonated-sa",
+                              "key": "x-agw-rls-filter",
+                              "value": rls_filter,
+                          },
+                          "append": False,
+                      },
+                      {
+                          "header": {
+                              "key": "x-agw-impersonated-sa",
                               "value": impersonated_sa,
                           },
                           "append": False,
                       },
                       {
                           "header": {
-                              "key": "x-partner-rls-scope",
+                              "key": "x-agw-rls-scope",
                               "value": rls_scope,
                           },
                           "append": False,
@@ -1988,7 +2044,7 @@ async def agw_service_extension_oauth_broker(request: Request):
                       {
                           "header": {
                               "key": "x-agw-ext-broker",
-                              "value": f"firestore-verified-stateless-sts:{auth_mode}:{rls_policy}",
+                              "value": f"ge-agw-ext-proc-sts:{auth_mode}:{rls_policy}",
                           },
                           "append": False,
                       },
@@ -2004,7 +2060,7 @@ async def agw_service_extension_oauth_broker(request: Request):
 async def health():
   return {
       "status": "ok",
-      "version": "2.3.0-bq-native-rls",
+      "version": "2.4.0-gcaf-geap-agw",
       "project": PROJECT_ID,
       "ces_app_id": get_effective_ces_app_id(),
       "public_base_url": get_effective_base_url(),
@@ -2034,7 +2090,8 @@ async def health():
               },
           ],
       },
-      "token_storage_policy": "ZERO_PERSISTENT_TOKEN_VAULT (Stateless IAM STS Service Account Impersonation in RAM only, gs:// token storage removed)",
+      "token_storage_policy": "ZERO_PERSISTENT_TOKEN_VAULT (GE Agent Identity Auth Manager + WIF/IAM STS in RAM only, gs:// token storage removed)",
+      "ces_mcp_header_contract": "customHeaders: {'x-line-user-id': '$context.variables.line_user_id'} (ZERO x-token parameter)",
       "login_richmenu_id": LOGIN_RICHMENU_ID,
       "unlocked_richmenu_id": UNLOCKED_RICHMENU_ID,
       "bqca_agent": BQCA_AGENT_RESOURCE,

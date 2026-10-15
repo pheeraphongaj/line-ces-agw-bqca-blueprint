@@ -83,10 +83,6 @@ def main() -> None:
                                         "Natural-language analytics question."
                                     ),
                                 },
-                                "line_user_id": {
-                                    "type": "string",
-                                    "description": "LINE userId for RLS lookup.",
-                                },
                             },
                             "required": ["question"],
                         },

@@ -1,0 +1,129 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1883" height="899" viewBox="0 0 1883 899" font-family="'Noto Sans CJK JP','Noto Sans JP','Roboto','Arial',sans-serif">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5F6368"/></marker></defs>
+<rect width="1883" height="899" fill="#FFFFFF"/>
+<text x="48" y="74" font-size="26" font-weight="700" fill="#202124">GCAF + GEAP + GE Agent Gateway Security Reference Architecture (Production OAuth/OIDC &amp; STS)</text>
+<text x="48" y="100" font-size="14" fill="#5F6368">Row 1: GEAP 3-Pillar Governance Stack (Build · Scale · Govern)  |  Row 2: Google Cloud Architecture Framework (GCAF) 5 Pillars &amp; SAIF</text>
+<rect x="48.0" y="132.0" width="357.5" height="362.0" rx="16" fill="none" stroke="#1A73E8" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="66.0" y="159.0" font-size="14" font-weight="700" fill="#1A73E8">1. PRODUCTION OAUTH / OIDC IDP</text>
+<rect x="66.0" y="174.0" width="321.5" height="65.0" rx="11" fill="#E8F0FE" stroke="#1A73E8" stroke-width="2.5"/>
+<text x="226.7" y="201.0" font-size="14" font-weight="700" fill="#1A73E8" text-anchor="middle">Firebase Auth / GCIP (Recommended)</text>
+<text x="226.7" y="221.0" font-size="11.5" fill="#1A73E8" fill-opacity="0.85" text-anchor="middle">identitytoolkit.googleapis.com · 50k Free MAU · MFA</text>
+<rect x="66.0" y="253.0" width="321.5" height="65.0" rx="11" fill="#E8F0FE" stroke="#1A73E8" stroke-width="2.5"/>
+<text x="226.7" y="280.0" font-size="14" font-weight="700" fill="#1A73E8" text-anchor="middle">LINE Login OIDC Federation</text>
+<text x="226.7" y="300.0" font-size="11.5" fill="#1A73E8" fill-opacity="0.85" text-anchor="middle">access.line.me federated into GCIP (1-Tap LINE SSO)</text>
+<rect x="66.0" y="332.0" width="321.5" height="65.0" rx="11" fill="#E8F0FE" stroke="#1A73E8" stroke-width="2"/>
+<text x="226.7" y="359.0" font-size="14" font-weight="700" fill="#1A73E8" text-anchor="middle">Enterprise BYO-IdP (Auth0 / Okta)</text>
+<text x="226.7" y="379.0" font-size="11.5" fill="#1A73E8" fill-opacity="0.85" text-anchor="middle">OIDC / SAML 2.0 federated into GCIP or GCP WIF</text>
+<rect x="66.0" y="411.0" width="321.5" height="65.0" rx="11" fill="#E8F0FE" stroke="#1A73E8" stroke-width="2"/>
+<text x="226.7" y="438.0" font-size="14" font-weight="700" fill="#1A73E8" text-anchor="middle">beforeSignIn Blocking Function</text>
+<text x="226.7" y="458.0" font-size="11.5" fill="#1A73E8" fill-opacity="0.85" text-anchor="middle">Injects {partner_id, store_number} into OIDC JWT</text>
+<rect x="515.5" y="124.0" width="367.6" height="378.0" rx="16" fill="none" stroke="#1E8E3E" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="533.5" y="151.0" font-size="14" font-weight="700" fill="#1E8E3E">2. TOKEN STORAGE &amp; WIF STS</text>
+<rect x="533.5" y="166.0" width="331.6" height="65.0" rx="11" fill="#E6F4EA" stroke="#1E8E3E" stroke-width="2.5"/>
+<text x="699.2" y="193.0" font-size="14" font-weight="700" fill="#137333" text-anchor="middle">GE Agent Identity Auth Manager</text>
+<text x="699.2" y="213.0" font-size="11.5" fill="#137333" fill-opacity="0.85" text-anchor="middle">Managed 2LO/3LO Vault (Cloud KMS CMEK Encrypted)</text>
+<rect x="533.5" y="245.0" width="331.6" height="81.0" rx="11" fill="#E6F4EA" stroke="#1E8E3E" stroke-width="2.5"/>
+<text x="699.2" y="272.0" font-size="14" font-weight="700" fill="#137333" text-anchor="middle">Workforce Identity Federation (WIF)</text>
+<text x="699.2" y="292.0" font-size="11.5" fill="#137333" fill-opacity="0.85" text-anchor="middle">RFC 8693 Token Exchange</text>
+<text x="699.2" y="308.0" font-size="11.5" fill="#137333" fill-opacity="0.85" text-anchor="middle">(sts.googleapis.com/v1/token)</text>
+<rect x="533.5" y="340.0" width="331.6" height="65.0" rx="11" fill="#E6F4EA" stroke="#1E8E3E" stroke-width="2.5"/>
+<text x="699.2" y="367.0" font-size="14" font-weight="700" fill="#137333" text-anchor="middle">RAM-Only Short-Lived STS Token</text>
+<text x="699.2" y="387.0" font-size="11.5" fill="#137333" fill-opacity="0.85" text-anchor="middle">5–15 min TTL in Memory · ZERO Tokens in gs:// or LLM</text>
+<rect x="533.5" y="419.0" width="331.6" height="65.0" rx="11" fill="#E6F4EA" stroke="#1E8E3E" stroke-width="2"/>
+<text x="699.2" y="446.0" font-size="14" font-weight="700" fill="#137333" text-anchor="middle">Firestore Entitlement Binding</text>
+<text x="699.2" y="466.0" font-size="11.5" fill="#137333" fill-opacity="0.85" text-anchor="middle">Stores ONLY uid ↔ oidc_sub, partner_id, status=ACTIVE</text>
+<rect x="993.0" y="132.0" width="365.9" height="362.0" rx="16" fill="none" stroke="#9334E6" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="1011.0" y="159.0" font-size="14" font-weight="700" fill="#9334E6">3. GEAP &amp; GE AGENT GATEWAY</text>
+<rect x="1011.0" y="174.0" width="329.9" height="65.0" rx="11" fill="#F3E8FD" stroke="#9334E6" stroke-width="2.5"/>
+<text x="1176.0" y="201.0" font-size="14" font-weight="700" fill="#8430CE" text-anchor="middle">GE Agent Gateway (Ingress &amp; Egress)</text>
+<text x="1176.0" y="221.0" font-size="11.5" fill="#8430CE" fill-opacity="0.85" text-anchor="middle">Air Traffic Control for MCP &amp; A2A (JSON-RPC / SSE)</text>
+<rect x="1011.0" y="253.0" width="329.9" height="65.0" rx="11" fill="#F3E8FD" stroke="#9334E6" stroke-width="2.5"/>
+<text x="1176.0" y="280.0" font-size="14" font-weight="700" fill="#8430CE" text-anchor="middle">Agent Registry &amp; MCP Registry</text>
+<text x="1176.0" y="300.0" font-size="11.5" fill="#8430CE" fill-opacity="0.85" text-anchor="middle">SPIFFE ID (principal://...) + McpServer Tool Catalog</text>
+<rect x="1011.0" y="332.0" width="329.9" height="65.0" rx="11" fill="#F3E8FD" stroke="#9334E6" stroke-width="2.5"/>
+<text x="1176.0" y="359.0" font-size="14" font-weight="700" fill="#8430CE" text-anchor="middle">Model Armor (CONTENT_AUTHZ)</text>
+<text x="1176.0" y="379.0" font-size="11.5" fill="#8430CE" fill-opacity="0.85" text-anchor="middle">Inline Prompt Injection (PIJB), Jailbreak &amp; SDP/DLP</text>
+<rect x="1011.0" y="411.0" width="329.9" height="65.0" rx="11" fill="#F3E8FD" stroke="#9334E6" stroke-width="2.5"/>
+<text x="1176.0" y="438.0" font-size="14" font-weight="700" fill="#8430CE" text-anchor="middle">Service Extension (Envoy ext_proc)</text>
+<text x="1176.0" y="458.0" font-size="11.5" fill="#8430CE" fill-opacity="0.85" text-anchor="middle">Intercepts x-line-user-id → Injects Bearer &lt;sts_tkn&gt;</text>
+<rect x="1468.9" y="124.0" width="366.4" height="378.0" rx="16" fill="none" stroke="#F9AB00" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="1486.9" y="151.0" font-size="14" font-weight="700" fill="#F9AB00">4. ZERO-TRUST DATA PLANE (VPC-SC)</text>
+<rect x="1486.9" y="166.0" width="330.4" height="65.0" rx="11" fill="#FEF7E0" stroke="#F9AB00" stroke-width="2.5"/>
+<text x="1652.1" y="193.0" font-size="14" font-weight="700" fill="#B06000" text-anchor="middle">VPC Service Controls Perimeter</text>
+<text x="1652.1" y="213.0" font-size="11.5" fill="#B06000" fill-opacity="0.85" text-anchor="middle">Encloses Vertex AI, CES, Cloud Run, BQCA &amp; BigQuery</text>
+<rect x="1486.9" y="245.0" width="330.4" height="65.0" rx="11" fill="#FEF7E0" stroke="#F9AB00" stroke-width="2"/>
+<text x="1652.1" y="272.0" font-size="14" font-weight="700" fill="#B06000" text-anchor="middle">PSC Interface &amp; Private Cloud DNS</text>
+<text x="1652.1" y="292.0" font-size="11.5" fill="#B06000" fill-opacity="0.85" text-anchor="middle">agent-gateway-na → 10.10.20.2 (run.app &amp; googleapis)</text>
+<rect x="1486.9" y="324.0" width="330.4" height="81.0" rx="11" fill="#FEF7E0" stroke="#F9AB00" stroke-width="2.5"/>
+<text x="1652.1" y="351.0" font-size="14" font-weight="700" fill="#B06000" text-anchor="middle">FastMCP → BQCA Regional API</text>
+<text x="1652.1" y="371.0" font-size="11.5" fill="#B06000" fill-opacity="0.85" text-anchor="middle">Verifies AGW-injected Bearer token · Zero x-token</text>
+<text x="1652.1" y="387.0" font-size="11.5" fill="#B06000" fill-opacity="0.85" text-anchor="middle">arg</text>
+<rect x="1486.9" y="419.0" width="330.4" height="65.0" rx="11" fill="#FEF7E0" stroke="#F9AB00" stroke-width="2.5"/>
+<text x="1652.1" y="446.0" font-size="14" font-weight="700" fill="#B06000" text-anchor="middle">BigQuery Native ROW ACCESS POLICY</text>
+<text x="1652.1" y="466.0" font-size="11.5" fill="#B06000" fill-opacity="0.85" text-anchor="middle">WIF SESSION_USER() + rls_partner_entitlements table</text>
+<line x1="419.5" y1="313.0" x2="501.5" y2="313.0" stroke="#5F6368" stroke-width="2" marker-end="url(#ah)"/>
+<text x="460.5" y="288.0" font-size="12.5" fill="#5F6368" text-anchor="middle">OIDC JWT</text>
+<text x="460.5" y="302.0" font-size="12.5" fill="#5F6368" text-anchor="middle">(3LO / SSO)</text>
+<line x1="897.0" y1="313.0" x2="979.0" y2="313.0" stroke="#5F6368" stroke-width="2" marker-start="url(#ah)" marker-end="url(#ah)"/>
+<text x="938.0" y="288.0" font-size="12.5" fill="#5F6368" text-anchor="middle">WIF / STS Token</text>
+<text x="938.0" y="302.0" font-size="12.5" fill="#5F6368" text-anchor="middle">(RFC 8693)</text>
+<line x1="1372.9" y1="313.0" x2="1454.9" y2="313.0" stroke="#5F6368" stroke-width="2" marker-start="url(#ah)" marker-end="url(#ah)"/>
+<text x="1413.9" y="288.0" font-size="12.5" fill="#5F6368" text-anchor="middle">Injected Bearer</text>
+<text x="1413.9" y="302.0" font-size="12.5" fill="#5F6368" text-anchor="middle">+ PSC Egress</text>
+<rect x="64.8" y="536.0" width="356.8" height="315.0" rx="16" fill="none" stroke="#D93025" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="82.8" y="563.0" font-size="14" font-weight="700" fill="#D93025">GCAF 1: SECURITY, PRIVACY &amp; SAIF</text>
+<rect x="82.8" y="578.0" width="320.8" height="65.0" rx="11" fill="#FCE8E6" stroke="#D93025" stroke-width="2.5"/>
+<text x="243.2" y="605.0" font-size="14" font-weight="700" fill="#A50E0E" text-anchor="middle">Zero-Token LLM Context (SAIF)</text>
+<text x="243.2" y="625.0" font-size="11.5" fill="#A50E0E" fill-opacity="0.85" text-anchor="middle">CES passes ONLY x-line-user-id; zero ya29 in prompt</text>
+<rect x="82.8" y="657.0" width="320.8" height="81.0" rx="11" fill="#FCE8E6" stroke="#D93025" stroke-width="2.5"/>
+<text x="243.2" y="684.0" font-size="14" font-weight="700" fill="#A50E0E" text-anchor="middle">PoLP &amp; IAM Guardrail</text>
+<text x="243.2" y="704.0" font-size="11.5" fill="#A50E0E" fill-opacity="0.85" text-anchor="middle">No project-level filteredDataViewer; policy-only</text>
+<text x="243.2" y="720.0" font-size="11.5" fill="#A50E0E" fill-opacity="0.85" text-anchor="middle">grant</text>
+<rect x="82.8" y="752.0" width="320.8" height="81.0" rx="11" fill="#FCE8E6" stroke="#D93025" stroke-width="2"/>
+<text x="243.2" y="779.0" font-size="14" font-weight="700" fill="#A50E0E" text-anchor="middle">Model Armor + VPC-SC + CMEK</text>
+<text x="243.2" y="799.0" font-size="11.5" fill="#A50E0E" fill-opacity="0.85" text-anchor="middle">Blocks prompt injection, PII exfiltration &amp;</text>
+<text x="243.2" y="815.0" font-size="11.5" fill="#A50E0E" fill-opacity="0.85" text-anchor="middle">cross-tenant leak</text>
+<rect x="531.6" y="552.0" width="366.1" height="283.0" rx="16" fill="none" stroke="#1A73E8" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="549.6" y="579.0" font-size="14" font-weight="700" fill="#1A73E8">GCAF 2: RELIABILITY &amp; RESILIENCE</text>
+<rect x="549.6" y="594.0" width="330.1" height="65.0" rx="11" fill="#E8F0FE" stroke="#1A73E8" stroke-width="2.5"/>
+<text x="714.7" y="621.0" font-size="14" font-weight="700" fill="#1A73E8" text-anchor="middle">22s LINE replyToken Watchdog</text>
+<text x="714.7" y="641.0" font-size="11.5" fill="#1A73E8" fill-opacity="0.85" text-anchor="middle">&lt;22s Free Reply API · &gt;=22s Async Push Fallback</text>
+<rect x="549.6" y="673.0" width="330.1" height="65.0" rx="11" fill="#E8F0FE" stroke="#1A73E8" stroke-width="2"/>
+<text x="714.7" y="700.0" font-size="14" font-weight="700" fill="#1A73E8" text-anchor="middle">Regional Endpoint &amp; Multi-Zone HA</text>
+<text x="714.7" y="720.0" font-size="11.5" fill="#1A73E8" fill-opacity="0.85" text-anchor="middle">geminidataanalytics.us.rep + Cloud Run min-instances</text>
+<rect x="549.6" y="752.0" width="330.1" height="65.0" rx="11" fill="#E8F0FE" stroke="#1A73E8" stroke-width="2.5"/>
+<text x="714.7" y="779.0" font-size="14" font-weight="700" fill="#1A73E8" text-anchor="middle">Instant Tenant Kill-Switch</text>
+<text x="714.7" y="799.0" font-size="11.5" fill="#1A73E8" fill-opacity="0.85" text-anchor="middle">status=SUSPENDED in Firestore → 403 at AGW ext_proc</text>
+<rect x="1007.7" y="536.0" width="344.0" height="315.0" rx="16" fill="none" stroke="#1E8E3E" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="1025.7" y="563.0" font-size="14" font-weight="700" fill="#1E8E3E">GCAF 3: OPERATIONAL EXCELLENCE</text>
+<rect x="1025.7" y="578.0" width="308.0" height="81.0" rx="11" fill="#E6F4EA" stroke="#1E8E3E" stroke-width="2.5"/>
+<text x="1179.7" y="605.0" font-size="14" font-weight="700" fill="#137333" text-anchor="middle">Agent &amp; MCP Registry Catalog</text>
+<text x="1179.7" y="625.0" font-size="11.5" fill="#137333" fill-opacity="0.85" text-anchor="middle">Central discovery, version pinning &amp; schema</text>
+<text x="1179.7" y="641.0" font-size="11.5" fill="#137333" fill-opacity="0.85" text-anchor="middle">governance</text>
+<rect x="1025.7" y="673.0" width="308.0" height="65.0" rx="11" fill="#E6F4EA" stroke="#1E8E3E" stroke-width="2.5"/>
+<text x="1179.7" y="700.0" font-size="14" font-weight="700" fill="#137333" text-anchor="middle">End-to-End Cloud Audit Logs</text>
+<text x="1179.7" y="720.0" font-size="11.5" fill="#137333" fill-opacity="0.85" text-anchor="middle">Tracks LINE uid → WIF principal → BigQuery jobId</text>
+<rect x="1025.7" y="752.0" width="308.0" height="81.0" rx="11" fill="#E6F4EA" stroke="#1E8E3E" stroke-width="2"/>
+<text x="1179.7" y="779.0" font-size="14" font-weight="700" fill="#137333" text-anchor="middle">Zero-DDL Partner Onboarding</text>
+<text x="1179.7" y="799.0" font-size="11.5" fill="#137333" fill-opacity="0.85" text-anchor="middle">1 SQL INSERT into rls_partner_entitlements (10k+</text>
+<text x="1179.7" y="815.0" font-size="11.5" fill="#137333" fill-opacity="0.85" text-anchor="middle">scale)</text>
+<rect x="1461.7" y="536.0" width="356.8" height="315.0" rx="16" fill="none" stroke="#9334E6" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="1479.7" y="563.0" font-size="14" font-weight="700" fill="#9334E6">GCAF 4 &amp; 5: COST &amp; PERFORMANCE</text>
+<rect x="1479.7" y="578.0" width="320.8" height="65.0" rx="11" fill="#F3E8FD" stroke="#9334E6" stroke-width="2.5"/>
+<text x="1640.1" y="605.0" font-size="14" font-weight="700" fill="#8430CE" text-anchor="middle">CES MCP Tool Pinning</text>
+<text x="1640.1" y="625.0" font-size="11.5" fill="#8430CE" fill-opacity="0.85" text-anchor="middle">Skips tools/list round-trip on every turn (-300ms)</text>
+<rect x="1479.7" y="657.0" width="320.8" height="81.0" rx="11" fill="#F3E8FD" stroke="#9334E6" stroke-width="2.5"/>
+<text x="1640.1" y="684.0" font-size="14" font-weight="700" fill="#8430CE" text-anchor="middle">Partitioned &amp; Clustered Fact Table</text>
+<text x="1640.1" y="704.0" font-size="11.5" fill="#8430CE" fill-opacity="0.85" text-anchor="middle">DATE(date) + (county, store_number) + 100MB byte</text>
+<text x="1640.1" y="720.0" font-size="11.5" fill="#8430CE" fill-opacity="0.85" text-anchor="middle">cap</text>
+<rect x="1479.7" y="752.0" width="320.8" height="81.0" rx="11" fill="#F3E8FD" stroke="#9334E6" stroke-width="2"/>
+<text x="1640.1" y="779.0" font-size="14" font-weight="700" fill="#8430CE" text-anchor="middle">BQCA Per-User Daily Token Quotas</text>
+<text x="1640.1" y="799.0" font-size="11.5" fill="#8430CE" fill-opacity="0.85" text-anchor="middle">PaidInput/OutputTokensPerDayPerProjectPerUser</text>
+<text x="1640.1" y="815.0" font-size="11.5" fill="#8430CE" fill-opacity="0.85" text-anchor="middle">caps</text>
+<line x1="435.6" y1="693.5" x2="517.6" y2="693.5" stroke="#5F6368" stroke-width="2" marker-end="url(#ah)"/>
+<text x="476.6" y="682.5" font-size="12.5" fill="#5F6368" text-anchor="middle">Defense in Depth</text>
+<line x1="911.7" y1="693.5" x2="993.7" y2="693.5" stroke="#5F6368" stroke-width="2" marker-end="url(#ah)"/>
+<text x="952.7" y="682.5" font-size="12.5" fill="#5F6368" text-anchor="middle">Full Traceability</text>
+<line x1="1365.7" y1="693.5" x2="1447.7" y2="693.5" stroke="#5F6368" stroke-width="2" marker-end="url(#ah)"/>
+<text x="1406.7" y="682.5" font-size="12.5" fill="#5F6368" text-anchor="middle">FinOps &amp; Low Latency</text>
+</svg>
