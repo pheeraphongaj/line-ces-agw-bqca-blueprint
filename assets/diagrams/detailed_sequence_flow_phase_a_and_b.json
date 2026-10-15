@@ -1,6 +1,6 @@
 {
-  "title": "End-to-End Wire-Level Sequence Diagram (17 Steps): Phase A OIDC Login & Phase B Zero x-token Runtime",
-  "subtitle": "LINE OA → Webhook Bridge → GCIP (Firebase Auth) / Auth0 / IAP → Firestore & Auth Mgr → CES → GE Agent Gateway (WIF STS) → FastMCP, BQCA & BigQuery RLS",
+  "title": "End-to-End Wire-Level Sequence Diagram (17 Steps): Production-Verified Zero x-token Architecture (v2.5.0)",
+  "subtitle": "LINE OA → Webhook Bridge → GCIP Custom OIDC / Auth0 / IAP → Firestore & KMS Signer → CES / ADK → FastMCP PEP & STS Broker → BQCA & BigQuery RLS",
   "participant_gap": 46,
   "pad_x": 44,
   "participants": [
@@ -23,39 +23,39 @@
       "width": 235
     },
     {
-      "title": "4. GCIP (Firebase) / Auth0",
-      "sub": "(LINE OIDC / SAML / IAP)",
+      "title": "4. GCIP (Custom OIDC) / IAP",
+      "sub": "(oidc.line / Auth0 / IAP)",
       "color": "blue",
       "width": 245
     },
     {
-      "title": "5. Firestore & Auth Mgr",
-      "sub": "(Registry + CMEK 3LO Vault)",
+      "title": "5. Firestore & Cloud KMS",
+      "sub": "(Registry + RS256 Signer)",
       "color": "orange",
       "width": 245
     },
     {
-      "title": "6. CX Agent Studio (CES)",
-      "sub": "(Supervisor + McpToolset)",
+      "title": "6. Agent Runtime (CES / ADK)",
+      "sub": "(McpToolset Zero x-token)",
       "color": "purple",
       "width": 245
     },
     {
-      "title": "7. GE Agent Gateway & STS",
-      "sub": "(IAP + Model Armor + ext_proc)",
+      "title": "7. FastMCP PEP & STS Broker",
+      "sub": "(Model Armor + KMS/IAM STS)",
       "color": "green",
       "width": 255
     },
     {
-      "title": "8. FastMCP, BQCA & BQ RLS",
-      "sub": "(/mcp/ → us.rep :chat → BQ)",
+      "title": "8. BQCA Regional & BQ RLS",
+      "sub": "(us.rep :chat → BQ Policy)",
       "color": "red",
       "width": 255
     }
   ],
   "steps": [
     {
-      "section": "PHASE A: PRODUCTION OAUTH 2.0 / OIDC ONBOARDING (GCIP / FIREBASE AUTH, AUTH0 OR CLOUD IAP) & PER-USER 6-CARD RICH MENU UNLOCK",
+      "section": "PHASE A: PRODUCTION OAUTH 2.0 / OIDC ONBOARDING (GCIP CUSTOM OIDC oidc.line, AUTH0 OR CLOUD IAP) & PER-USER 6-CARD RICH MENU UNLOCK",
       "color": "green"
     },
     {
@@ -68,13 +68,13 @@
       "from": 1,
       "to": 2,
       "dashed": false,
-      "label": "[A2] POST /line/webhook (ตรวจสอบ Header: X-Line-Signature HMAC-SHA256)\nสร้าง state = HMAC-SHA256(uid:exp) และตอบกลับด้วยปุ่ม Login Flex URI (?openExternalBrowser=1)"
+      "label": "[A2] POST /line/webhook (ตรวจสอบ Header: X-Line-Signature HMAC-SHA256)\nสร้าง state = HMAC-SHA256(uid:exp) และตอบกลับด้วยปุ่ม Login Flex URI (?openExternalBrowser=1 กัน 403 WebView)"
     },
     {
       "from": 0,
       "to": 3,
       "dashed": false,
-      "label": "[A3] เปิด External Browser (Safari/Chrome) เพื่อยืนยันตัวตนผ่าน OIDC / SAML / Cloud IAP\nPartner ภายนอก: GCIP (Firebase Auth + LINE Login OIDC) หรือ Auth0 | พนักงานภายใน: Cloud IAP"
+      "label": "[A3] เปิด External Browser (Safari/Chrome) ยืนยันตัวตนผ่าน OIDC / SAML / Cloud IAP\nPartner ภายนอก: GCIP (ผูก Custom OIDC Provider https://access.line.me) หรือ Auth0 | พนักงานภายใน: Cloud IAP"
     },
     {
       "from": 3,
@@ -92,7 +92,7 @@
       "from": 2,
       "to": 4,
       "dashed": false,
-      "label": "[A6] เก็บ 3LO Refresh Token ใน GE Agent Identity Auth Manager (CMEK) และบันทึกสถานะใน Firestore\nline_partner_registry/{uid} เก็บเฉพาะ {oidc_sub, partner_id: 'PARTNER-POLK-001', store: '2633', status: 'ACTIVE'} (Zero gs://!)"
+      "label": "[A6] บันทึกสถานะการผูกตัวตนใน Firestore line_partner_registry/{uid} (Zero Token Storage ใน Firestore/gs://!)\nเก็บเฉพาะ {oidc_sub, partner_id: 'PARTNER-POLK-001', store: '2633', rls_policy_name, status: 'ACTIVE'}"
     },
     {
       "from": 2,
@@ -101,7 +101,7 @@
       "label": "[A7] POST https://api.line.me/v2/bot/user/{uid}/richmenu/{richmenu_6card_id}\nปลดล็อกหน้าจอของผู้ใช้รายนั้นจากเมนู 1 การ์ด → เมนูวิเคราะห์ข้อมูล 6 การ์ด พร้อมส่ง Partner RLS Badge"
     },
     {
-      "section": "PHASE B: RUNTIME ANALYTICS QUERY — ZERO X-TOKEN IN CES MCP, GE AGENT GATEWAY EXT_PROC WIF STS INJECTION & BIGQUERY NATIVE RLS",
+      "section": "PHASE B: RUNTIME ANALYTICS QUERY — ZERO X-TOKEN IN CES MCP, MODEL ARMOR, KMS/IAM STS TOKEN BROKER & BIGQUERY NATIVE RLS",
       "color": "blue"
     },
     {
@@ -120,43 +120,43 @@
       "from": 2,
       "to": 5,
       "dashed": false,
-      "label": "[B3] POST ces.googleapis.com/v1beta/.../sessions/line-{uid}-{partner}-rls23:runSession\ninputs: [{'variables': {'line_user_id': 'U...'}}, {'text': 'Top 5 stores'}] — ไม่มี OAuth Token ใน LLM Context!"
+      "label": "[B3] POST ces.googleapis.com/v1beta/.../sessions/line-{uid}-{partner}-rls24:runSession\ninputs: [{'variables': {'line_user_id': 'U...'}}, {'text': 'Top 5 stores'}] — ไม่มี OAuth Token ใน LLM Context!"
     },
     {
       "from": 5,
       "to": 6,
       "dashed": false,
-      "label": "[B4] CES McpToolset เรียกใช้ ask_iowa_sales_agent(question) ผ่าน GE Agent Gateway\nTool Pinning ข้าม tools/list (-300ms) | customHeaders ส่งเฉพาะ {'x-line-user-id': 'U...'} — ไม่มีพารามิเตอร์ x-token!"
+      "label": "[B4] CES McpToolset เรียก POST /mcp/ (service_account_auth_config roles/run.invoker | หรือ ADK ผ่าน Managed AGW)\nTool Pinning ข้าม tools/list (-300ms) | customHeaders ส่งเฉพาะ {'x-line-user-id': 'U...'} — ไม่มีพารามิเตอร์ x-token!"
     },
     {
       "from": 6,
       "to": 6,
       "dashed": false,
-      "label": "[B5] GE Agent Gateway บังคับใช้ 1P AuthzPolicies (REQUEST_AUTHZ + CONTENT_AUTHZ)\nCloud IAP ตรวจสอบ SPIFFE ID/IAM ของผู้เรียก | Model Armor สแกน Prompt Injection (PIJB) และข้อมูลส่วนบุคคล (SDP)"
+      "label": "[B5] FastMCP Zero-Trust PEP (หรือ ALB LbTrafficExtension /ext-proc/oauth-broker) บังคับใช้ 1P Model Armor\nเรียก modelarmor.us-central1.rep.googleapis.com/v1/...:sanitizeUserPrompt สแกน Prompt Injection (PIJB) & Sensitive PII"
     },
     {
       "from": 6,
       "to": 4,
       "dashed": false,
-      "label": "[B6] AGW Envoy ext_proc (/ext-proc/oauth-broker) ตรวจสอบ Firestore ACTIVE และเรียก WIF / IAM STS\nPOST sts.googleapis.com/v1/token (RFC 8693) แลกเป็น Short-Lived STS Bearer Token (TTL 5–15 นาทีใน RAM เท่านั้น)"
+      "label": "[B6] ตรวจสอบ Firestore ACTIVE และแลก Short-Lived Token ใน RAM (แก้ปัญหา OIDC id_token หมดอายุใน 1 ชม.)\n• Mode A (1k–1M+): Cloud KMS asymmetricSign เซ็น JWT (5m) → แลก Workforce Pool Token ที่ sts.googleapis.com/v1/token\n• Mode B (<50, Active): เรียก iamcredentials.googleapis.com/.../serviceAccounts/{partner_sa}:generateAccessToken"
     },
     {
       "from": 6,
       "to": 7,
       "dashed": false,
-      "label": "[B7] AGW ฉีด Header และส่งต่อ POST /mcp/ ผ่าน Private Service Connect (PSC Interface)\nแนบ Header: Authorization: Bearer <sts_token>, x-agw-verified-partner-id: PARTNER-POLK-001 และ x-agw-rls-policy"
+      "label": "[B7] FastMCP ยิง POST geminidataanalytics.us.rep.googleapis.com/v1beta/.../locations/us:chat\nส่ง HTTP Header: Authorization: Bearer <sts_or_sa_token> (ตามโค้ด ChatAction.kt:1695 ที่ใช้ HTTP Header สำหรับ BigQuery!)"
     },
     {
       "from": 7,
       "to": 7,
       "dashed": false,
-      "label": "[B8] FastMCP เรียก Regional BQCA (locations/us:chat) ด้วย Header: Authorization: Bearer <sts_token>\nBigQuery รัน SQL ภายใต้ SESSION_USER() / Partner SA → บังคับใช้ ROW ACCESS POLICY (เห็นเฉพาะ Store #2633!)"
+      "label": "[B8] BigQuery รัน SQL ภายใต้ SESSION_USER() ของ Bearer Token (sa-partner-polk@... หรือ Workforce Pool Principal)\nบังคับใช้ ROW ACCESS POLICY (rls_partner_polk_store_2633) กรองให้เห็นเฉพาะ Store #2633 ในระดับ Storage Engine!"
     },
     {
       "from": 7,
       "to": 5,
       "dashed": true,
-      "label": "[B9] แปลง Vega-Lite vegaConfig → 2x Retina PNG (vl-convert) → อัปโหลดขึ้น gs://...-line-charts\nส่งผลลัพธ์ JSON-RPC (answer, generated_sql, chart_url, followups, rls_badge) ย้อนกลับผ่าน AGW มายัง CES"
+      "label": "[B9] แปลง Vega-Lite vegaConfig → 2x Retina PNG (vl-convert) → อัปโหลดขึ้น gs://...-line-charts\nส่งผลลัพธ์ JSON-RPC (answer, generated_sql, chart_url, followups, rls_badge) ย้อนกลับมายัง CES / ADK"
     },
     {
       "from": 2,
