@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 
 import google.auth
 import google.auth.transport.requests
+from google.oauth2 import id_token
 import httpx
 import vl_convert as vlc
 from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request, Response
@@ -64,6 +65,8 @@ LINE_CHANNEL_ACCESS_TOKEN = os.environ.get(
 ).strip()
 LINE_OA_BASIC_ID = os.environ.get("LINE_OA_BASIC_ID", "@your-line-oa").strip()
 _CACHED_LINE_BASIC_ID: Optional[str] = None
+FIREBASE_WEB_API_KEY = os.environ.get("FIREBASE_WEB_API_KEY", "").strip()
+_CACHED_FIREBASE_API_KEY: Optional[str] = None
 CUTOFF_SECONDS = float(os.environ.get("LINE_REPLY_CUTOFF_SECONDS", "22.0"))
 
 # Model Armor & Workforce Identity Federation (Cloud KMS Asymmetric OIDC Signer)
@@ -92,8 +95,8 @@ def hash_password(password: str) -> str:
 MOCK_PARTNER_ACCOUNTS: Dict[str, Dict[str, Any]] = {
     "partner.polk@iowa-beverage.com": {
         "email": "partner.polk@iowa-beverage.com",
-        "password_plain_hint": "IowaPartner#2026",
-        "password_hash": hash_password("IowaPartner#2026"),
+        "firebase_uid": "nwZCijyEowabKRv8q8cUBxpyRBr1",
+        "oidc_issuer": f"https://securetoken.google.com/{PROJECT_ID}",
         "partner_id": "PARTNER-POLK-001",
         "partner_name": "Hy-Vee #3 Des Moines (Store #2633)",
         "partner_tier": "GOLD",
@@ -102,12 +105,12 @@ MOCK_PARTNER_ACCOUNTS: Dict[str, Dict[str, Any]] = {
         "rls_scope": "Polk • Store #2633 (HY-VEE #3 ONLY)",
         "rls_sql_filter": "LOWER(county) = 'polk' AND store_number = '2633'",
         "status": "ACTIVE",
-        "auth_mode": "PARTNER_CIP_FIRESTORE",
+        "auth_mode": "FIREBASE_AUTH_GCIP_OIDC",
     },
     "partner.east@midwest-spirits.com": {
         "email": "partner.east@midwest-spirits.com",
-        "password_plain_hint": "Midwest#2026",
-        "password_hash": hash_password("Midwest#2026"),
+        "firebase_uid": "w66HFyxx8edDNbcEanyIlNIXPjG2",
+        "oidc_issuer": f"https://securetoken.google.com/{PROJECT_ID}",
         "partner_id": "PARTNER-EAST-002",
         "partner_name": "Benz Distributing Cedar Rapids (Store #3773)",
         "partner_tier": "SILVER",
@@ -116,12 +119,12 @@ MOCK_PARTNER_ACCOUNTS: Dict[str, Dict[str, Any]] = {
         "rls_scope": "Linn • Store #3773 (BENZ DIST ONLY)",
         "rls_sql_filter": "LOWER(county) = 'linn' AND store_number = '3773'",
         "status": "ACTIVE",
-        "auth_mode": "PARTNER_CIP_FIRESTORE",
+        "auth_mode": "FIREBASE_AUTH_GCIP_OIDC",
     },
     "vip@heartland-retail.com": {
         "email": "vip@heartland-retail.com",
-        "password_plain_hint": "Heartland#2026",
-        "password_hash": hash_password("Heartland#2026"),
+        "firebase_uid": "XhPk2yVpXEZdRiEeehHgKFMTpvB2",
+        "oidc_issuer": f"https://securetoken.google.com/{PROJECT_ID}",
         "partner_id": "PARTNER-VIP-003",
         "partner_name": "Heartland Retail Corp. (Statewide)",
         "partner_tier": "PLATINUM",
@@ -130,12 +133,12 @@ MOCK_PARTNER_ACCOUNTS: Dict[str, Dict[str, Any]] = {
         "rls_scope": "ALL_IOWA",
         "rls_sql_filter": "TRUE",
         "status": "ACTIVE",
-        "auth_mode": "PARTNER_CIP_FIRESTORE",
+        "auth_mode": "FIREBASE_AUTH_GCIP_OIDC",
     },
     "suspended@old-liquor.com": {
         "email": "suspended@old-liquor.com",
-        "password_plain_hint": "Revoked#2026",
-        "password_hash": hash_password("Revoked#2026"),
+        "firebase_uid": "79k62nmQl0cjkwqlBDexCLj7ca13",
+        "oidc_issuer": f"https://securetoken.google.com/{PROJECT_ID}",
         "partner_id": "PARTNER-REV-999",
         "partner_name": "Legacy Liquor LLC (Expired Contract)",
         "partner_tier": "EXPIRED",
@@ -144,7 +147,7 @@ MOCK_PARTNER_ACCOUNTS: Dict[str, Dict[str, Any]] = {
         "rls_scope": "NONE",
         "rls_sql_filter": "FALSE",
         "status": "SUSPENDED",
-        "auth_mode": "PARTNER_CIP_FIRESTORE",
+        "auth_mode": "FIREBASE_AUTH_GCIP_OIDC",
     },
 }
 
@@ -532,12 +535,14 @@ def ensure_mock_partners_seeded() -> List[Dict[str, Any]]:
     firestore_set_doc(PARTNER_ACCOUNTS_COLLECTION, doc_key, acct)
     seeded.append({
         "email": acct["email"],
-        "password": acct["password_plain_hint"],
+        "firebase_uid": acct.get("firebase_uid", ""),
+        "oidc_issuer": acct.get("oidc_issuer", ""),
         "partner_id": acct["partner_id"],
         "partner_name": acct["partner_name"],
         "partner_tier": acct["partner_tier"],
         "rls_scope": acct["rls_scope"],
         "status": acct["status"],
+        "auth_mode": acct.get("auth_mode", "FIREBASE_AUTH_GCIP_OIDC"),
     })
   return seeded
 
@@ -664,6 +669,91 @@ async def resolve_line_oa_basic_id() -> str:
   return LINE_OA_BASIC_ID or "@your-line-oa"
 
 
+async def resolve_firebase_web_api_key() -> str:
+  """Resolves the project's Firebase Auth / Identity Platform Web API Key from identitytoolkit Admin API."""
+  global _CACHED_FIREBASE_API_KEY
+  if _CACHED_FIREBASE_API_KEY:
+    return _CACHED_FIREBASE_API_KEY
+  if FIREBASE_WEB_API_KEY:
+    _CACHED_FIREBASE_API_KEY = FIREBASE_WEB_API_KEY
+    return _CACHED_FIREBASE_API_KEY
+  try:
+    tok = get_gcp_bearer_token()
+    async with httpx.AsyncClient(timeout=6.0) as client:
+      resp = await client.get(
+          f"https://identitytoolkit.googleapis.com/admin/v2/projects/{PROJECT_ID}/config",
+          headers={
+              "Authorization": f"Bearer {tok}",
+              "X-Goog-User-Project": PROJECT_ID,
+          },
+      )
+      if resp.status_code == 200:
+        api_key = resp.json().get("client", {}).get("apiKey", "").strip()
+        if api_key:
+          _CACHED_FIREBASE_API_KEY = api_key
+          return _CACHED_FIREBASE_API_KEY
+  except Exception as e:
+    logger.warning("Failed to resolve Firebase Web API Key: %s", e)
+  return ""
+
+
+async def authenticate_with_firebase_auth(
+    email: str, password: str
+) -> Optional[Dict[str, Any]]:
+  """Authenticates user via Firebase Authentication / Identity Platform (`accounts:signInWithPassword`) and verifies the RS256 OIDC idToken."""
+  api_key = await resolve_firebase_web_api_key()
+  if not api_key:
+    return None
+  url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={api_key}"
+  async with httpx.AsyncClient(timeout=10.0) as client:
+    resp = await client.post(
+        url,
+        json={
+            "email": email.strip(),
+            "password": password.strip(),
+            "returnSecureToken": True,
+        },
+    )
+    if resp.status_code != 200:
+      err_msg = ""
+      try:
+        err_msg = resp.json().get("error", {}).get("message", "")
+      except Exception:
+        pass
+      if "USER_DISABLED" in err_msg:
+        return {
+            "status": "SUSPENDED",
+            "error": "USER_DISABLED",
+            "email": email.strip().lower(),
+            "partner_id": "PARTNER-REVOKED-999",
+        }
+      return None
+
+    data = resp.json()
+    raw_id_token = data.get("idToken", "")
+    local_id = data.get("localId", "")
+    claims = id_token.verify_firebase_token(
+        raw_id_token,
+        google.auth.transport.requests.Request(),
+        audience=PROJECT_ID,
+    )
+    return {
+        "firebase_uid": claims.get("sub") or local_id,
+        "oidc_issuer": claims.get(
+            "iss", f"https://securetoken.google.com/{PROJECT_ID}"
+        ),
+        "email": claims.get("email", email.strip().lower()),
+        "partner_id": claims.get("partner_id", ""),
+        "partner_name": claims.get("name") or data.get("displayName", ""),
+        "partner_tier": claims.get("partner_tier", "GOLD"),
+        "rls_policy_name": claims.get("rls_policy_name", ""),
+        "rls_scope": claims.get("rls_scope", ""),
+        "service_account": claims.get("service_account", ""),
+        "status": claims.get("status", "ACTIVE"),
+        "email_verified": bool(claims.get("email_verified", True)),
+    }
+
+
 def build_iap_login_flex_message(line_user_id: str, base_url: str = "") -> Dict[str, Any]:
   portal_url = build_signed_partner_portal_url(line_user_id, base_url)
   iap_url = build_signed_iap_login_url(line_user_id)
@@ -678,7 +768,7 @@ def build_iap_login_flex_message(line_user_id: str, base_url: str = "") -> Dict[
           "contents": [
               {
                   "type": "text",
-                  "text": "🔒 HYBRID IDENTITY GATE (PARTNER CIP + INTERNAL IAP)",
+                  "text": "🔒 HYBRID IDENTITY GATE (FIREBASE AUTH GCIP + CLOUD IAP)",
                   "color": "#38BDF8",
                   "size": "xxs",
                   "weight": "bold",
@@ -701,9 +791,9 @@ def build_iap_login_flex_message(line_user_id: str, base_url: str = "") -> Dict[
               {
                   "type": "text",
                   "text": (
-                      "• คู่ค้า (External Partner): ล็อกอินผ่าน Firestore + Impersonate Partner SA บังคับใช้ BigQuery Native ROW ACCESS POLICY ระดับ Store\n"
+                      "• คู่ค้า (External Partner): ล็อกอินผ่าน Firebase Authentication (Identity Platform OIDC) + ผูกสิทธิ์ใน Firestore บังคับใช้ BigQuery Native ROW ACCESS POLICY ระดับ Store\n"
                       "• พนักงานภายใน (Internal): ล็อกอินผ่าน Google Cloud IAP SSO\n"
-                      "• ปลอดภัย 100%: ไม่เก็บ OAuth Token ลง gs:// (Stateless IAM STS ใน RAM)"
+                      "• ปลอดภัย 100%: ไม่เก็บ Password Hash หรือ OAuth Token ลง Firestore/gs:// (Stateless IAM STS ใน RAM)"
                   ),
                   "size": "xs",
                   "color": "#334155",
@@ -713,7 +803,7 @@ def build_iap_login_flex_message(line_user_id: str, base_url: str = "") -> Dict[
               {
                   "type": "text",
                   "text": (
-                      "บัญชีทดสอบ Partner (BigQuery Native RLS):\n"
+                      "บัญชีทดสอบ Partner (Firebase Auth + BigQuery Native RLS):\n"
                       "📧 partner.polk@iowa-beverage.com\n"
                       "🔑 IowaPartner#2026 (Polk • Store #2633 Hy-Vee #3 เท่านั้น)\n"
                       "📧 vip@heartland-retail.com\n"
@@ -737,7 +827,7 @@ def build_iap_login_flex_message(line_user_id: str, base_url: str = "") -> Dict[
                   "color": "#059669",
                   "action": {
                       "type": "uri",
-                      "label": "🤝 Partner Login (Firestore CIP)",
+                      "label": "🤝 Partner Login (Firebase Auth OIDC)",
                       "uri": portal_url,
                   },
               },
@@ -998,9 +1088,9 @@ async def partner_login_portal(
 </head>
 <body>
   <div class="card">
-    <div class="badge">🔒 ZERO-VAULT HYBRID AUTH • FIRESTORE + IAM STS</div>
+    <div class="badge">🔒 ZERO-VAULT HYBRID AUTH • FIREBASE AUTH (GCIP OIDC) + FIRESTORE + IAM STS</div>
     <h1>ยืนยันตัวตนเพื่อเปิดใช้งาน LINE 6-Card Menu</h1>
-    <p class="sub">สำหรับคู่ค้า (External Partner) ตรวจสอบสิทธิ์ผ่าน <strong>Cloud Firestore</strong> และออก Short-lived Token ผ่าน <strong>Agent Gateway Service Extension (IAM STS)</strong> โดยไม่เก็บ Key บน gs://</p>
+    <p class="sub">สำหรับคู่ค้า (External Partner) ยืนยันตัวตนผ่าน <strong>Firebase Authentication (Identity Platform OIDC)</strong> ผูกสิทธิ์ใน <strong>Cloud Firestore</strong> และออก Short-lived Token ผ่าน <strong>Agent Gateway / FastMCP STS Broker</strong> โดยไม่เก็บ Password Hash หรือ Key บน Firestore/gs://</p>
     {err_banner}
     <form method="POST" action="/auth/partner-login">
       <input type="hidden" name="uid" value="{uid}">
@@ -1010,7 +1100,7 @@ async def partner_login_portal(
       <input type="email" id="email" name="email" value="partner.polk@iowa-beverage.com" required>
       <label for="password">Password</label>
       <input type="password" id="password" name="password" value="IowaPartner#2026" required>
-      <button type="submit" class="btn-primary">🤝 Sign In as External Partner (Firestore Verify)</button>
+      <button type="submit" class="btn-primary">🤝 Sign In with Firebase Authentication (Identity Platform)</button>
     </form>
 
     <div class="preset-box">
@@ -1058,7 +1148,7 @@ async def send_partner_auth_success_push(uid: str, record: Dict[str, Any]) -> No
           "contents": [
               {
                   "type": "text",
-                  "text": "✅ FIRESTORE PARTNER REGISTRY + BIGQUERY NATIVE RLS",
+                  "text": "✅ FIREBASE AUTH (GCIP OIDC) + FIRESTORE + BIGQUERY RLS",
                   "color": "#D1FAE5",
                   "size": "xxs",
                   "weight": "bold",
@@ -1084,6 +1174,14 @@ async def send_partner_auth_success_push(uid: str, record: Dict[str, Any]) -> No
                   "size": "xs",
                   "weight": "bold",
                   "color": "#1E293B",
+                  "wrap": True,
+              },
+              {
+                  "type": "text",
+                  "text": f"🆔 Firebase UID: {record.get('firebase_uid')}",
+                  "size": "xxs",
+                  "color": "#0284C7",
+                  "weight": "bold",
                   "wrap": True,
               },
               {
@@ -1184,19 +1282,55 @@ async def partner_login_submit(request: Request):
     )
 
   email_key = email.strip().lower()
-  if email_key in MOCK_PARTNER_ACCOUNTS:
-    ensure_mock_partners_seeded()
-    acct = MOCK_PARTNER_ACCOUNTS[email_key]
-  else:
-    acct = firestore_get_doc(PARTNER_ACCOUNTS_COLLECTION, email_key)
+  ensure_mock_partners_seeded()
+  acct_meta = MOCK_PARTNER_ACCOUNTS.get(email_key) or firestore_get_doc(
+      PARTNER_ACCOUNTS_COLLECTION, email_key
+  ) or {}
 
-  if not acct or acct.get("password_hash") != hash_password(password.strip()):
+  # 1. Authenticate against live Firebase Authentication / Cloud Identity Platform (`identitytoolkit.googleapis.com`)
+  fb_auth = await authenticate_with_firebase_auth(email_key, password.strip())
+  if fb_auth and fb_auth.get("status") == "SUSPENDED":
+    await set_user_richmenu(uid, LOGIN_RICHMENU_ID)
     return await partner_login_portal(
         uid=uid,
         exp=exp,
         sig=sig,
-        error="อีเมลหรือรหัสผ่านของ Partner ไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง",
+        error=(
+            f"บัญชี Firebase Auth ({acct_meta.get('partner_id') or fb_auth.get('partner_id')}) "
+            "ถูกระงับสิทธิ์ (USER_DISABLED / SUSPENDED) ไม่อนุญาตให้เข้าถึง CES & BQCA (403 Forbidden)"
+        ),
     )
+
+  if fb_auth:
+    acct = {
+        "email": fb_auth["email"],
+        "firebase_uid": fb_auth["firebase_uid"],
+        "oidc_issuer": fb_auth["oidc_issuer"],
+        "partner_id": fb_auth.get("partner_id") or acct_meta.get("partner_id", "PARTNER-POLK-001"),
+        "partner_name": fb_auth.get("partner_name") or acct_meta.get("partner_name", "Verified Partner"),
+        "partner_tier": fb_auth.get("partner_tier") or acct_meta.get("partner_tier", "GOLD"),
+        "service_account": fb_auth.get("service_account") or acct_meta.get(
+            "service_account", "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com"
+        ),
+        "rls_policy_name": fb_auth.get("rls_policy_name") or acct_meta.get(
+            "rls_policy_name", "rls_internal_all_access"
+        ),
+        "rls_scope": fb_auth.get("rls_scope") or acct_meta.get("rls_scope", "ALL_IOWA"),
+        "rls_sql_filter": acct_meta.get("rls_sql_filter", "TRUE"),
+        "status": fb_auth.get("status", "ACTIVE"),
+        "auth_mode": "FIREBASE_AUTH_GCIP_OIDC",
+    }
+  else:
+    if not acct_meta or acct_meta.get("password_hash") != hash_password(password.strip()):
+      return await partner_login_portal(
+          uid=uid,
+          exp=exp,
+          sig=sig,
+          error="อีเมลหรือรหัสผ่านของ Partner (Firebase Auth / Identity Platform) ไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง",
+      )
+    acct = dict(acct_meta)
+    acct["firebase_uid"] = acct.get("firebase_uid", "firestore-fallback")
+    acct["oidc_issuer"] = f"https://securetoken.google.com/{PROJECT_ID}"
 
   if acct.get("status") != "ACTIVE":
     await set_user_richmenu(uid, LOGIN_RICHMENU_ID)
@@ -1214,6 +1348,10 @@ async def partner_login_submit(request: Request):
   registry_doc = {
       "authenticated": True,
       "line_user_id": uid,
+      "firebase_uid": acct.get("firebase_uid", ""),
+      "oidc_issuer": acct.get(
+          "oidc_issuer", f"https://securetoken.google.com/{PROJECT_ID}"
+      ),
       "user_email": acct["email"],
       "partner_id": acct["partner_id"],
       "partner_name": acct["partner_name"],
@@ -1225,7 +1363,7 @@ async def partner_login_submit(request: Request):
       "rls_scope": acct["rls_scope"],
       "rls_sql_filter": acct.get("rls_sql_filter", "TRUE"),
       "status": "ACTIVE",
-      "auth_mode": "PARTNER_CIP_FIRESTORE",
+      "auth_mode": acct.get("auth_mode", "FIREBASE_AUTH_GCIP_OIDC"),
       "token_storage": "NONE_STATELESS_IAM_STS",
       "authenticated_at": int(time.time()),
       "unlocked_richmenu_id": UNLOCKED_RICHMENU_ID,
@@ -1242,7 +1380,7 @@ async def partner_login_submit(request: Request):
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Partner Authenticated — Firestore + BigQuery Native RLS</title>
+  <title>Partner Authenticated — Firebase Auth (GCIP OIDC) + Firestore + BigQuery Native RLS</title>
   <style>
     body {{
       margin: 0; padding: 24px;
@@ -1285,10 +1423,12 @@ async def partner_login_submit(request: Request):
 </head>
 <body>
   <div class="card">
-    <div class="badge">✅ FIRESTORE VERIFIED • BIGQUERY NATIVE RLS</div>
+    <div class="badge">✅ FIREBASE AUTH (GCIP OIDC) • FIRESTORE • BIGQUERY RLS</div>
     <h1>ปลดล็อก Rich Menu 6 การ์ดสำเร็จ!</h1>
-    <p>ผูกบัญชี Partner เข้ากับ Firestore (<code>line_partner_registry</code>) พร้อมบังคับใช้ <strong>BigQuery Native Row Access Policy</strong> เรียบร้อยแล้ว</p>
+    <p>ยืนยันตัวตนผ่าน <strong>Firebase Authentication (Identity Platform OIDC)</strong> และผูกสิทธิ์ใน Firestore (<code>line_partner_registry</code>) พร้อมบังคับใช้ <strong>BigQuery Native Row Access Policy</strong> เรียบร้อยแล้ว</p>
     <div class="meta">
+      <div><strong>Firebase Auth UID:</strong> <code>{registry_doc["firebase_uid"]}</code></div>
+      <div><strong>OIDC Issuer:</strong> <code>{registry_doc["oidc_issuer"]}</code></div>
       <div><strong>Partner Org:</strong> {acct["partner_name"]} ({acct["partner_id"]})</div>
       <div><strong>Email / Tier:</strong> {acct["email"]} [{acct["partner_tier"]}]</div>
       <div><strong>BQ RLS Policy:</strong> <code>{registry_doc["rls_policy_name"]}</code></div>
@@ -2370,7 +2510,7 @@ async def health():
           "partner_registry": PARTNER_REGISTRY_COLLECTION,
       },
       "bigquery_native_row_access_policies": {
-          "table": "hong-demo-project.iowa_liquor_sales.sales",
+          "table": "<YOUR_BQ_DATASET_PROJECT_ID>.iowa_liquor_sales.sales",
           "policies": [
               {
                   "policy_id": "rls_partner_polk_store_2633",
@@ -2384,7 +2524,7 @@ async def health():
               },
               {
                   "policy_id": "rls_internal_all_access",
-                  "grantee": "serviceAccount:<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com, user:pheeraphong@google.com",
+                  "grantee": "serviceAccount:<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com, user:<YOUR_CORPORATE_EMAIL>",
                   "filter_predicate": "TRUE",
               },
           ],
