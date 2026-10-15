@@ -16,13 +16,13 @@ import google.auth.transport.requests
 from google.oauth2 import id_token
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("iowa-line-iap-auth")
 
-PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "<YOUR_GCP_PROJECT_ID>")
-PROJECT_NUMBER = os.environ.get("GCP_PROJECT_NUMBER", "<YOUR_PROJECT_NUMBER>")
+PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "your-gcp-project-id")
+PROJECT_NUMBER = os.environ.get("GCP_PROJECT_NUMBER", "123456789012")
 REGION = os.environ.get("GCP_REGION", "us-central1")
 SERVICE_NAME = os.environ.get("K_SERVICE", "iowa-line-iap-auth")
 
@@ -35,10 +35,10 @@ PARTNER_REGISTRY_COLLECTION = "line_partner_registry"
 LINE_CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "").strip()
 LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "").strip()
 UNLOCKED_RICHMENU_ID = os.environ.get(
-    "UNLOCKED_RICHMENU_ID", "richmenu-1150166c906fab07940f62a5df4f4f9e"
+    "UNLOCKED_RICHMENU_ID", "richmenu-unlocked-6card-id"
 )
 LOGIN_RICHMENU_ID = os.environ.get(
-    "LOGIN_RICHMENU_ID", "richmenu-eabdd88ffc5bf4e2ecf4707ed3fad403"
+    "LOGIN_RICHMENU_ID", "richmenu-locked-1card-id"
 )
 
 app = FastAPI(
@@ -65,28 +65,36 @@ def verify_iap_jwt(request: Request) -> Dict[str, str]:
   raw_email = request.headers.get("x-goog-authenticated-user-email", "").strip()
   raw_id = request.headers.get("x-goog-authenticated-user-id", "").strip()
 
+  if not iap_jwt:
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            "Forbidden: Missing x-goog-iap-jwt-assertion header. Direct "
+            "unauthenticated access bypassing Cloud IAP is prohibited."
+        ),
+    )
+
   email = raw_email.split(":", 1)[-1] if ":" in raw_email else raw_email
   sub = raw_id.split(":", 1)[-1] if ":" in raw_id else raw_id
 
-  if iap_jwt:
-    expected_aud = (
-        f"/projects/{PROJECT_NUMBER}/locations/{REGION}/services/{SERVICE_NAME}"
+  expected_aud = (
+      f"/projects/{PROJECT_NUMBER}/locations/{REGION}/services/{SERVICE_NAME}"
+  )
+  try:
+    claims = id_token.verify_token(
+        iap_jwt,
+        google.auth.transport.requests.Request(),
+        audience=expected_aud,
+        certs_url="https://www.gstatic.com/iap/verify/public_key",
     )
-    try:
-      claims = id_token.verify_token(
-          iap_jwt,
-          google.auth.transport.requests.Request(),
-          audience=expected_aud,
-          certs_url="https://www.gstatic.com/iap/verify/public_key",
-      )
-      email = claims.get("email") or email
-      sub = claims.get("sub") or sub
-    except Exception as e:
-      logger.error("IAP JWT cryptographic verification failed: %s", e)
-      raise HTTPException(
-          status_code=401,
-          detail="Invalid Cloud IAP JWT assertion signature or audience.",
-      ) from e
+    email = claims.get("email") or email
+    sub = claims.get("sub") or sub
+  except Exception as e:
+    logger.error("IAP JWT cryptographic verification failed: %s", e)
+    raise HTTPException(
+        status_code=401,
+        detail="Invalid Cloud IAP JWT assertion signature or audience.",
+    ) from e
 
   return {
       "email": email or "authenticated-iap-user@google-cloud",
@@ -336,19 +344,32 @@ async def auth_login(
       <div><strong>Token Broker:</strong> Stateless IAM STS (RAM Only)</div>
       <div><strong>6-Card Menu Linked:</strong> {safe_linked}</div>
     </div>
-    <a class="btn" href="https://line.me/R/ti/p/@703tucge">กลับไปยังแชท LINE Sales AI ➔</a>
+    <a class="btn" href="https://line.me/R/ti/p/@your-line-oa">กลับไปยังแชท LINE Sales AI ➔</a>
   </div>
 </body>
 </html>"""
   return HTMLResponse(content=page_html)
 
 
+@app.get("/")
 @app.get("/health")
-async def health():
+async def health(request: Request):
+  if not request.headers.get("x-goog-iap-jwt-assertion", "").strip():
+    return JSONResponse(
+        status_code=403,
+        content={
+            "error": "Forbidden",
+            "message": (
+                "Direct unauthenticated access to Cloud Run endpoint is "
+                "prohibited. Must be accessed through Cloud IAP."
+            ),
+        },
+    )
+  verify_iap_jwt(request)
   return {
       "status": "ok",
       "service": SERVICE_NAME,
-      "version": "2.2.0-partner-firestore-sts",
+      "version": "2.6.0-zero-trust-hardened",
       "iap_protected": True,
       "firestore_collection": PARTNER_REGISTRY_COLLECTION,
       "token_storage": "NONE_STATELESS_IAM_STS",

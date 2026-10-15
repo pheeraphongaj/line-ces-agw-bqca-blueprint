@@ -25,13 +25,13 @@ from google.cloud import storage
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("iowa-line-bqca-adapter")
 
-PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "<YOUR_GCP_PROJECT_ID>")
+PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "your-gcp-project-id")
 CES_LOCATION = os.environ.get("CES_LOCATION", "us")
 CES_APP_ID = os.environ.get("CES_APP_ID", "")
 
 BQCA_LOCATION = os.environ.get("BQCA_LOCATION", "us")
 BQCA_AGENT_ID = os.environ.get(
-    "BQCA_AGENT_ID", "agent_4d95fc42-7b1d-428d-8156-32e8c8632161"
+    "BQCA_AGENT_ID", "agent_00000000-0000-0000-0000-000000000000"
 )
 # Trap #1: Regional Endpoint is required for locations/us BQCA DataAgents
 BQCA_CHAT_URL = (
@@ -49,17 +49,17 @@ FIRESTORE_BASE_URL = (
 PARTNER_ACCOUNTS_COLLECTION = "line_partner_accounts"
 PARTNER_REGISTRY_COLLECTION = "line_partner_registry"
 
-CHART_BUCKET = os.environ.get("CHART_BUCKET", "<YOUR_GCP_PROJECT_ID>-line-charts")
+CHART_BUCKET = os.environ.get("CHART_BUCKET", "your-gcp-project-id-line-charts")
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "")
 IAP_AUTH_BASE_URL = os.environ.get(
     "IAP_AUTH_BASE_URL",
-    "https://iowa-line-iap-auth-<YOUR_PROJECT_NUMBER>.us-central1.run.app",
+    "https://iowa-line-iap-auth-123456789012.us-central1.run.app",
 ).rstrip("/")
 UNLOCKED_RICHMENU_ID = os.environ.get(
-    "UNLOCKED_RICHMENU_ID", "richmenu-1150166c906fab07940f62a5df4f4f9e"
+    "UNLOCKED_RICHMENU_ID", "richmenu-unlocked-6card-id"
 )
 LOGIN_RICHMENU_ID = os.environ.get(
-    "LOGIN_RICHMENU_ID", "richmenu-eabdd88ffc5bf4e2ecf4707ed3fad403"
+    "LOGIN_RICHMENU_ID", "richmenu-locked-1card-id"
 )
 
 LINE_CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "").strip()
@@ -103,7 +103,7 @@ MOCK_PARTNER_ACCOUNTS: Dict[str, Dict[str, Any]] = {
         "partner_id": "PARTNER-POLK-001",
         "partner_name": "Hy-Vee #3 Des Moines (Store #2633)",
         "partner_tier": "GOLD",
-        "service_account": "sa-partner-polk@<YOUR_GCP_PROJECT_ID>.iam.gserviceaccount.com",
+        "service_account": "sa-partner-polk@your-gcp-project-id.iam.gserviceaccount.com",
         "rls_policy_name": "rls_partner_polk_store_2633",
         "rls_scope": "Polk • Store #2633 (HY-VEE #3 ONLY)",
         "rls_sql_filter": "LOWER(county) = 'polk' AND store_number = '2633'",
@@ -117,7 +117,7 @@ MOCK_PARTNER_ACCOUNTS: Dict[str, Dict[str, Any]] = {
         "partner_id": "PARTNER-EAST-002",
         "partner_name": "Benz Distributing Cedar Rapids (Store #3773)",
         "partner_tier": "SILVER",
-        "service_account": "sa-partner-east@<YOUR_GCP_PROJECT_ID>.iam.gserviceaccount.com",
+        "service_account": "sa-partner-east@your-gcp-project-id.iam.gserviceaccount.com",
         "rls_policy_name": "rls_partner_east_store_3773",
         "rls_scope": "Linn • Store #3773 (BENZ DIST ONLY)",
         "rls_sql_filter": "LOWER(county) = 'linn' AND store_number = '3773'",
@@ -131,7 +131,7 @@ MOCK_PARTNER_ACCOUNTS: Dict[str, Dict[str, Any]] = {
         "partner_id": "PARTNER-VIP-003",
         "partner_name": "Heartland Retail Corp. (Statewide)",
         "partner_tier": "PLATINUM",
-        "service_account": "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com",
+        "service_account": "123456789012-compute@developer.gserviceaccount.com",
         "rls_policy_name": "rls_internal_all_access",
         "rls_scope": "ALL_IOWA",
         "rls_sql_filter": "TRUE",
@@ -372,7 +372,7 @@ def get_stateless_sts_token(
   - Mode A (`WORKFORCE_POOL_AUDIENCE` configured — `1,000–1,000,000+` Partners, `0` Partner SAs):
     Signs a 5-min RS256 JWT via Cloud KMS (`asymmetricSign`) and exchanges it with
     `POST https://sts.googleapis.com/v1/token` against a GCP Workforce Identity Pool (`workforcePools`).
-  - Mode B (`target_sa` configured — `<50` Partners / Store Cohort SAs, Active on `<YOUR_GCP_PROJECT_ID>`):
+  - Mode B (`target_sa` configured — `<50` Partners / Store Cohort SAs, Active on `your-gcp-project-id`):
     Mints a short-lived `ya29...` token in RAM via `iamcredentials.googleapis.com/...:generateAccessToken`.
   """
   cache_key = f"{principal_key}:{target_sa}:{WORKFORCE_POOL_AUDIENCE}"
@@ -403,11 +403,11 @@ def get_stateless_sts_token(
 
   # Mode B: IAM Service Account Impersonation (`iamcredentials.googleapis.com`)
   host_token = get_gcp_bearer_token()
-  effective_sa = target_sa or "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com"
+  effective_sa = target_sa or "123456789012-compute@developer.gserviceaccount.com"
 
   if (
       target_sa
-      and target_sa != "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com"
+      and target_sa != "123456789012-compute@developer.gserviceaccount.com"
   ):
     iam_url = (
         "https://iamcredentials.googleapis.com/v1/projects/-/"
@@ -582,6 +582,29 @@ def verify_state_signature(uid: str, exp: int, sig: str) -> bool:
   return hmac.compare_digest(sig, expected)
 
 
+_ALLOWED_CALLER_EMAIL_SUFFIXES = (
+    f"@{PROJECT_ID}.iam.gserviceaccount.com",
+    "@gcp-sa-ces.iam.gserviceaccount.com",
+    "@gcp-sa-iap.iam.gserviceaccount.com",
+    "@google.com",
+    "@example-admin.altostrat.com",
+)
+_ALLOWED_CALLER_EMAILS = {
+    "123456789012-compute@developer.gserviceaccount.com",
+    "service-123456789012@gcp-sa-ces.iam.gserviceaccount.com",
+    "service-123456789012@gcp-sa-iap.iam.gserviceaccount.com",
+}
+
+
+def _is_trusted_caller_email(email: str) -> bool:
+  em = (email or "").strip().lower()
+  if not em:
+    return False
+  if em in _ALLOWED_CALLER_EMAILS:
+    return True
+  return any(em.endswith(sfx.lower()) for sfx in _ALLOWED_CALLER_EMAIL_SUFFIXES)
+
+
 def verify_admin_request(
     request: Request,
     raw_body: bytes = b"",
@@ -589,9 +612,16 @@ def verify_admin_request(
     exp: int = 0,
     sig: str = "",
 ) -> bool:
-  """Verifies administrative or test requests via X-Admin-Signature HMAC, GCP IAM Bearer token, or valid state signature."""
+  """Verifies administrative, CES, or gateway requests via HMAC signature, trusted GCP IAM/CES OIDC/Bearer token, or valid state signature."""
   if uid and exp and sig and verify_state_signature(uid, exp, sig):
     return True
+
+  hdr_uid = request.headers.get("x-line-user-id", "").strip()
+  hdr_exp_str = request.headers.get("x-line-user-exp", "0").strip()
+  hdr_sig = request.headers.get("x-line-user-sig", "").strip()
+  if hdr_uid and hdr_sig and hdr_exp_str.isdigit():
+    if verify_state_signature(hdr_uid, int(hdr_exp_str), hdr_sig):
+      return True
 
   secret = _get_hmac_secret()
   admin_sig = (
@@ -628,7 +658,7 @@ def verify_admin_request(
         claims = id_token.verify_oauth2_token(
             bearer_tok, google.auth.transport.requests.Request()
         )
-        if claims and claims.get("sub"):
+        if claims and _is_trusted_caller_email(claims.get("email", "")):
           return True
       except Exception:
         pass
@@ -639,8 +669,12 @@ def verify_admin_request(
                 "https://oauth2.googleapis.com/tokeninfo",
                 params={"access_token": bearer_tok},
             )
-            if resp.status_code == 200 and resp.json().get("expires_in"):
-              return True
+            if resp.status_code == 200:
+              t_info = resp.json()
+              if t_info.get("expires_in") and _is_trusted_caller_email(
+                  t_info.get("email", "")
+              ):
+                return True
         except Exception:
           pass
 
@@ -651,7 +685,7 @@ def build_signed_partner_portal_url(line_user_id: str, base_url: str = "") -> st
   exp = int(time.time() + 3600)
   sig = build_state_signature(line_user_id, exp)
   safe_uid_q = urllib.parse.quote(str(line_user_id), safe="")
-  eff_base = get_effective_base_url(base_url) or "https://iowa-line-bqca-adapter-<YOUR_PROJECT_NUMBER>.us-central1.run.app"
+  eff_base = get_effective_base_url(base_url) or "https://iowa-line-bqca-adapter-123456789012.us-central1.run.app"
   return (
       f"{eff_base}/auth/portal?uid={safe_uid_q}&exp={exp}&sig={sig}"
       "&openExternalBrowser=1"
@@ -675,7 +709,7 @@ def get_user_auth_session(line_user_id: str) -> Optional[Dict[str, Any]]:
   Zero OAuth tokens are stored in Firestore or GCS. When the user is ACTIVE in
   Firestore, the Stateless Token Broker mints/fetches a short-lived `ya29...`
   access token in RAM only by impersonating the Partner's dedicated Service Account
-  (e.g., `sa-partner-polk@<YOUR_GCP_PROJECT_ID>.iam.gserviceaccount.com`), which enforces
+  (e.g., `sa-partner-polk@your-gcp-project-id.iam.gserviceaccount.com`), which enforces
   BigQuery Native `ROW ACCESS POLICY` at the storage engine layer.
   """
   if not line_user_id:
@@ -705,7 +739,7 @@ def get_user_auth_session(line_user_id: str) -> Optional[Dict[str, Any]]:
 
   partner_id = enriched.get("partner_id", "PARTNER-DEFAULT")
   target_sa = enriched.get(
-      "service_account", "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com"
+      "service_account", "123456789012-compute@developer.gserviceaccount.com"
   )
   sts_info = get_stateless_sts_token(partner_id, target_sa=target_sa)
   enriched["oauth2_access_token"] = sts_info["access_token"]
@@ -734,7 +768,7 @@ async def set_user_richmenu(line_user_id: str, richmenu_id: str) -> bool:
 
 
 async def resolve_line_oa_basic_id() -> str:
-  """Resolves the LINE Official Account basicId (e.g. @703tucge) dynamically from /v2/bot/info."""
+  """Resolves the LINE Official Account basicId (e.g. @your-line-oa) dynamically from /v2/bot/info."""
   global _CACHED_LINE_BASIC_ID
   if _CACHED_LINE_BASIC_ID:
     return _CACHED_LINE_BASIC_ID
@@ -1063,7 +1097,7 @@ async def execute_iowa_bqca_query(
       raw_answer = raw_answer + "\n" + "\n".join(row_lines)
 
   eff_policy = rls_policy_name or "rls_internal_all_access"
-  eff_sa = impersonated_sa or "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com"
+  eff_sa = impersonated_sa or "123456789012-compute@developer.gserviceaccount.com"
   if rls_scope and rls_scope not in ("ALL_IOWA", "NONE", ""):
     rls_note = (
         f"🛡️ [BigQuery Native RLS: {eff_policy}]\n"
@@ -1099,17 +1133,26 @@ async def execute_iowa_bqca_query(
 # =====================================================================
 @app.get("/auth/portal", response_class=HTMLResponse)
 async def partner_login_portal(
-    uid: str = "U_DEMO_PARTNER",
+    request: Request,
+    uid: str = "",
     exp: int = 0,
     sig: str = "",
     error: str = "",
 ):
-  if not _SAFE_UID_RE.fullmatch(uid or ""):
-    uid = "U_INVALID"
-    error = error or "รหัสผู้ใช้ (UID) ไม่ถูกต้อง"
-  if exp == 0 or not sig:
-    exp = int(time.time() + 3600)
-    sig = build_state_signature(uid, exp)
+  if not uid or not _SAFE_UID_RE.fullmatch(uid or ""):
+    return HTMLResponse(
+        status_code=403,
+        content="<h1>403 Forbidden</h1><p>Direct access to /auth/portal without a valid signed LINE user link is prohibited.</p>",
+    )
+  if not verify_state_signature(uid, exp, sig):
+    if verify_admin_request(request, uid=uid, exp=exp, sig=sig):
+      exp = int(time.time() + 600)
+      sig = build_state_signature(uid, exp)
+    else:
+      return HTMLResponse(
+          status_code=403,
+          content="<h1>403 Forbidden</h1><p>Missing or expired HMAC state signature. Please open the login link directly from the LINE Official Account (@your-line-oa).</p>",
+      )
   iap_login_url = build_signed_iap_login_url(uid)
   safe_uid = html.escape(str(uid), quote=True)
   safe_exp = html.escape(str(exp), quote=True)
@@ -1377,35 +1420,23 @@ async def partner_login_submit(request: Request):
     password = (parsed.get("password", [""])[0]).strip()
 
   if not uid or not _SAFE_UID_RE.fullmatch(uid):
-    return await partner_login_portal(
-        uid="U_INVALID",
-        exp=0,
-        sig="",
-        error="รหัสผู้ใช้ (UID) ไม่ถูกต้อง กรุณากดเข้าสู่ระบบผ่าน LINE อีกครั้ง",
+    return HTMLResponse(
+        status_code=403,
+        content="<h1>403 Forbidden</h1><p>รหัสผู้ใช้ (UID) ไม่ถูกต้อง กรุณากดเข้าสู่ระบบผ่าน LINE อีกครั้ง</p>",
     )
 
   if not sig and exp == 0 and uid:
     if verify_admin_request(request, raw_bytes, uid=uid):
-      logger.warning(
-          "Authorized admin/CLI partner-login without state sig for uid=%s", uid
-      )
-      exp = int(time.time() + 300)
-      sig = build_state_signature(uid, exp)
-    elif not request.headers.get("origin") and not request.headers.get("referer"):
-      logger.warning(
-          "Unsigned non-browser CLI partner-login for validated uid=%s; issuing short-lived sig",
-          uid,
-      )
       exp = int(time.time() + 300)
       sig = build_state_signature(uid, exp)
 
   if not verify_state_signature(uid, exp, sig):
-    return await partner_login_portal(
-        uid=uid, exp=0, sig="", error="ลิงก์หมดอายุหรือไม่มีลายเซ็นยืนยัน กรุณากดเข้าสู่ระบบใหม่อีกครั้ง"
+    return HTMLResponse(
+        status_code=403,
+        content="<h1>403 Forbidden</h1><p>ลิงก์หมดอายุหรือไม่มีลายเซ็นยืนยัน (HMAC State Signature Required) กรุณากดเข้าสู่ระบบจากภายในห้องแชท LINE (@your-line-oa) เท่านั้น</p>",
     )
 
   email_key = email.strip().lower()
-  ensure_mock_partners_seeded()
   acct_meta = MOCK_PARTNER_ACCOUNTS.get(email_key) or firestore_get_doc(
       PARTNER_ACCOUNTS_COLLECTION, email_key
   ) or {}
@@ -1415,6 +1446,7 @@ async def partner_login_submit(request: Request):
   if fb_auth and fb_auth.get("status") == "SUSPENDED":
     await set_user_richmenu(uid, LOGIN_RICHMENU_ID)
     return await partner_login_portal(
+        request,
         uid=uid,
         exp=exp,
         sig=sig,
@@ -1426,6 +1458,7 @@ async def partner_login_submit(request: Request):
 
   if not fb_auth:
     return await partner_login_portal(
+        request,
         uid=uid,
         exp=exp,
         sig=sig,
@@ -1440,7 +1473,7 @@ async def partner_login_submit(request: Request):
       "partner_name": fb_auth.get("partner_name") or acct_meta.get("partner_name", "Verified Partner"),
       "partner_tier": fb_auth.get("partner_tier") or acct_meta.get("partner_tier", "GOLD"),
       "service_account": fb_auth.get("service_account") or acct_meta.get(
-          "service_account", "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com"
+          "service_account", "123456789012-compute@developer.gserviceaccount.com"
       ),
       "rls_policy_name": fb_auth.get("rls_policy_name") or acct_meta.get(
           "rls_policy_name", "rls_internal_all_access"
@@ -1454,6 +1487,7 @@ async def partner_login_submit(request: Request):
   if acct.get("status") != "ACTIVE":
     await set_user_richmenu(uid, LOGIN_RICHMENU_ID)
     return await partner_login_portal(
+        request,
         uid=uid,
         exp=exp,
         sig=sig,
@@ -1476,7 +1510,7 @@ async def partner_login_submit(request: Request):
       "partner_name": acct["partner_name"],
       "partner_tier": acct["partner_tier"],
       "service_account": acct.get(
-          "service_account", "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com"
+          "service_account", "123456789012-compute@developer.gserviceaccount.com"
       ),
       "rls_policy_name": acct.get("rls_policy_name", "rls_internal_all_access"),
       "rls_scope": acct["rls_scope"],
@@ -1660,7 +1694,7 @@ def resolve_agw_injected_context(request: Request) -> Dict[str, str]:
         "rls_sql_filter": request.headers.get("x-agw-rls-filter", "TRUE"),
         "impersonated_sa": request.headers.get(
             "x-agw-impersonated-sa",
-            "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com",
+            "123456789012-compute@developer.gserviceaccount.com",
         ),
         "token_source": "alb_lb_traffic_extension_ext_proc_header_injection",
     }
@@ -1679,7 +1713,7 @@ def resolve_agw_injected_context(request: Request) -> Dict[str, str]:
           "rls_sql_filter": broker_sess.get("rls_sql_filter", "TRUE"),
           "impersonated_sa": broker_sess.get(
               "impersonated_sa",
-              "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com",
+              "123456789012-compute@developer.gserviceaccount.com",
           ),
           "token_source": "fastmcp_zero_trust_pep_stateless_sts_broker",
       }
@@ -1692,14 +1726,19 @@ def resolve_agw_injected_context(request: Request) -> Dict[str, str]:
       "rls_policy_name": "rls_internal_all_access",
       "rls_scope": "ALL_IOWA",
       "rls_sql_filter": "TRUE",
-      "impersonated_sa": "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com",
+      "impersonated_sa": "123456789012-compute@developer.gserviceaccount.com",
       "token_source": "unauthenticated_default",
   }
 
 
 @app.get("/mcp")
 @app.get("/mcp/")
-async def mcp_get_info():
+async def mcp_get_info(request: Request):
+  if not verify_admin_request(request):
+    raise HTTPException(
+        status_code=401,
+        detail="Unauthorized: Direct unauthenticated access to /mcp is prohibited.",
+    )
   return JSONResponse(
       content={
           "name": "iowa-bqca-mcp",
@@ -1712,17 +1751,21 @@ async def mcp_get_info():
 
 @app.delete("/mcp")
 @app.delete("/mcp/")
-async def mcp_delete_session():
+async def mcp_delete_session(request: Request):
+  if not verify_admin_request(request):
+    raise HTTPException(status_code=401, detail="Unauthorized")
   return Response(status_code=204)
 
 
 @app.post("/mcp")
 @app.post("/mcp/")
 async def mcp_streamable_http(request: Request):
-  body = await request.json()
+  raw_bytes = await request.body()
+  body = json.loads(raw_bytes.decode("utf-8") or "{}")
   session_id = request.headers.get("mcp-session-id") or uuid.uuid4().hex
   req_base = f"https://{request.headers.get('host', '')}"
   base_url = get_effective_base_url(req_base)
+  caller_verified = verify_admin_request(request, raw_bytes)
   agw_ctx = resolve_agw_injected_context(request)
 
   async def handle_single_rpc(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -1740,7 +1783,7 @@ async def mcp_streamable_http(request: Request):
               "capabilities": {"tools": {"listChanged": False}},
               "serverInfo": {
                   "name": "iowa-bqca-mcp",
-                  "version": "2.4.0-gcaf-geap-agw",
+                  "version": "2.5.0-zero-trust",
               },
           },
       }
@@ -1768,7 +1811,19 @@ async def mcp_streamable_http(request: Request):
         }
       question = args.get("question", "")
       user_id = agw_ctx["line_user_id"]
+      if not caller_verified:
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized MCP caller: valid CES Service Agent OIDC token, HMAC x-line-user-sig, or GCP IAM Bearer token required.",
+        )
       try:
+        # 1. Verify Model Armor prompt guardrail first
+        ma_check = sanitize_prompt_with_model_armor(question)
+        if ma_check.get("verdict") == "BLOCK":
+          raise HTTPException(
+              status_code=400,
+              detail=f"Blocked by Model Armor / PEP Guardrail: {ma_check.get('reason')}",
+          )
         result = await execute_iowa_bqca_query(
             question,
             base_url=base_url,
@@ -1783,7 +1838,6 @@ async def mcp_streamable_http(request: Request):
         result["token_broker_source"] = agw_ctx["token_source"]
         if user_id:
           TURN_ARTIFACTS[user_id] = result
-        TURN_ARTIFACTS["__latest__"] = result
         return {
             "jsonrpc": "2.0",
             "id": msg_id,
@@ -2126,10 +2180,12 @@ async def run_ces_session(
   ces_url = f"https://ces.googleapis.com/v1beta/{session_path}:runSession"
 
   # Trap #3: SessionInput has oneof input_type { text, variables }
-  # Notice: ONLY line_user_id is passed in CES session variables.
-  # CES McpToolset forwards `x-line-user-id` to GE Agent Gateway (`agent-gateway-in`),
-  # where the Service Extension (`POST /ext-proc/oauth-broker`) mints and injects
-  # `Authorization: Bearer <sts_token>` into the upstream MCP request.
+  # Notice: ONLY line_user_id (+ HMAC state signature exp/sig) is passed in CES session variables.
+  # CES McpToolset forwards `x-line-user-id`, `x-line-user-exp`, and `x-line-user-sig`
+  # to GE Agent Gateway (`agent-gateway-in`), where the Service Extension (`POST /ext-proc/oauth-broker`)
+  # mints and injects `Authorization: Bearer <sts_token>` into the upstream MCP request.
+  ces_exp = int(time.time()) + 900
+  ces_sig = build_state_signature(line_user_id, ces_exp)
   payload = {
       "config": {
           "session": session_path,
@@ -2139,6 +2195,8 @@ async def run_ces_session(
           {
               "variables": {
                   "line_user_id": line_user_id,
+                  "line_user_exp": str(ces_exp),
+                  "line_user_sig": ces_sig,
               }
           },
           {"text": user_text},
@@ -2205,7 +2263,7 @@ async def run_ces_session(
       "partner_id": partner_id,
       "rls_scope": rls_scope or "ALL_IOWA",
       "rls_policy_name": rls_policy_name or "rls_internal_all_access",
-      "impersonated_sa": impersonated_sa or "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com",
+      "impersonated_sa": impersonated_sa or "123456789012-compute@developer.gserviceaccount.com",
       "token_broker": "GE_AGENT_GATEWAY_EXT_PROC_STS",
   }
 
@@ -2264,7 +2322,7 @@ async def process_line_turn(
   rls_policy_name = auth_record.get("rls_policy_name", "rls_internal_all_access")
   rls_sql_filter = auth_record.get("rls_sql_filter", "TRUE")
   impersonated_sa = auth_record.get(
-      "service_account", "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com"
+      "service_account", "123456789012-compute@developer.gserviceaccount.com"
   )
   await start_line_loading(line_user_id, seconds=60)
 
@@ -2419,19 +2477,19 @@ async def test_turn(request: Request):
   req_base = f"https://{request.headers.get('host', '')}"
   base_url = get_effective_base_url(req_base)
 
-  if bypass_auth:
-    exp = int(body.get("exp", 0) or 0)
-    sig = str(body.get("sig", "")).strip()
-    if not verify_admin_request(
-        request, raw_body, uid=user_id, exp=exp, sig=sig
-    ):
-      raise HTTPException(
-          status_code=401,
-          detail=(
-              "Unauthorized: bypass_auth requires a valid X-Admin-Signature "
-              "header, GCP IAM Bearer token, or verified state signature."
-          ),
-      )
+  exp = int(body.get("exp", 0) or 0)
+  sig = str(body.get("sig", "")).strip()
+  if not verify_admin_request(
+      request, raw_body, uid=user_id, exp=exp, sig=sig
+  ):
+    raise HTTPException(
+        status_code=401,
+        detail=(
+            "Unauthorized: Direct unauthenticated access to /test/turn is "
+            "prohibited. Requires a valid X-Admin-Signature header, trusted "
+            "GCP IAM Bearer token, or verified state signature."
+        ),
+    )
 
   auth_record = firestore_get_doc(PARTNER_REGISTRY_COLLECTION, user_id)
   if (not auth_record or auth_record.get("status") != "ACTIVE") and not bypass_auth:
@@ -2445,18 +2503,18 @@ async def test_turn(request: Request):
     }
 
   u_email = (
-      auth_record.get("user_email", "demo-bypass@<YOUR_GCP_PROJECT_ID>")
+      auth_record.get("user_email", "demo-bypass@your-gcp-project-id")
       if auth_record
-      else "demo-bypass@<YOUR_GCP_PROJECT_ID>"
+      else "demo-bypass@your-gcp-project-id"
   )
   p_id = auth_record.get("partner_id", "INTERNAL-BYPASS") if auth_record else "INTERNAL-BYPASS"
   r_scope = auth_record.get("rls_scope", "ALL_IOWA") if auth_record else "ALL_IOWA"
   r_pol = auth_record.get("rls_policy_name", "rls_internal_all_access") if auth_record else "rls_internal_all_access"
   r_flt = auth_record.get("rls_sql_filter", "TRUE") if auth_record else "TRUE"
   imp_sa = (
-      auth_record.get("service_account", "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com")
+      auth_record.get("service_account", "123456789012-compute@developer.gserviceaccount.com")
       if auth_record
-      else "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com"
+      else "123456789012-compute@developer.gserviceaccount.com"
   )
 
   ces_res = await run_ces_session(
@@ -2504,18 +2562,29 @@ async def test_turn(request: Request):
 async def agw_service_extension_oauth_broker(request: Request):
   """Envoy ext_proc (EXT_PROC_JSON) Callout Extension for GE Agent Gateway.
 
-  1. Reads `x-line-user-id` from the incoming MCP request headers (forwarded by CES McpToolset).
+  1. Enforces Zero-Trust caller authentication (`verify_admin_request`).
+  2. Reads `x-line-user-id` from the incoming MCP request headers (forwarded by CES McpToolset).
      Notice: CES McpToolset NEVER sends any `x-token` header!
-  2. Queries Cloud Firestore (`line_partner_registry/{line_user_id}`) to verify
+  3. Queries Cloud Firestore (`line_partner_registry/{line_user_id}`) to verify
      `status == "ACTIVE"` and retrieve `partner_id`, `service_account`, and `rls_policy_name`.
-  3. Performs Stateless Token Brokering (via Workforce Identity Federation RFC 8693 STS
+  4. Performs Stateless Token Brokering (via Workforce Identity Federation RFC 8693 STS
      `sts.googleapis.com/v1/token` or `iamcredentials.googleapis.com` in RAM only,
      with ZERO tokens stored on GCS or Firestore) and returns Envoy HeaderMutation
      instructions injecting `authorization: Bearer ya29...`, `x-agw-verified-partner-id`,
      `x-agw-rls-policy`, `x-agw-rls-scope`, `x-agw-impersonated-sa`, and `x-agw-user-email`
      into the upstream `POST /mcp/` request.
   """
-  body = await request.json()
+  raw_bytes = await request.body()
+  if not verify_admin_request(request, raw_bytes):
+    raise HTTPException(
+        status_code=401,
+        detail=(
+            "Unauthorized: Direct unauthenticated access to "
+            "/ext-proc/oauth-broker is prohibited."
+        ),
+    )
+
+  body = json.loads(raw_bytes.decode("utf-8") or "{}")
   req_headers_raw = (
       body.get("request_headers", {}).get("headers", {}).get("headers", [])
   )
@@ -2543,12 +2612,6 @@ async def agw_service_extension_oauth_broker(request: Request):
                         "User is not registered or is SUSPENDED in Firestore "
                         "line_partner_registry."
                     ),
-                    "partner_portal_url": build_signed_partner_portal_url(
-                        line_uid or "UNKNOWN"
-                    ),
-                    "iap_login_url": build_signed_iap_login_url(
-                        line_uid or "UNKNOWN"
-                    ),
                 }),
             }
         },
@@ -2561,7 +2624,7 @@ async def agw_service_extension_oauth_broker(request: Request):
   rls_policy = auth_record.get("rls_policy_name", "rls_internal_all_access")
   rls_filter = auth_record.get("rls_sql_filter", "TRUE")
   impersonated_sa = auth_record.get(
-      "impersonated_sa", "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com"
+      "impersonated_sa", "123456789012-compute@developer.gserviceaccount.com"
   )
   auth_mode = auth_record.get("auth_mode", "PARTNER_CIP_FIRESTORE")
   return {
@@ -2670,7 +2733,6 @@ async def oidc_jwks():
                     "alg": "RS256",
                     "use": "sig",
                     "kid": "kms-partner-signer-v1",
-                    "kms_key_version": KMS_SIGNING_KEY_VERSION,
                     "pem": pub_data.get("pem", ""),
                 }
             ]
@@ -2687,7 +2749,6 @@ async def oidc_jwks():
               "alg": "RS256",
               "use": "sig",
               "kid": "kms-partner-signer-v1",
-              "kms_key_version": KMS_SIGNING_KEY_VERSION,
               "status": "READY_FOR_WORKFORCE_POOL_REGISTRATION",
           }
       ]
@@ -2696,10 +2757,28 @@ async def oidc_jwks():
 
 @app.get("/")
 @app.get("/health")
-async def health():
+async def health(request: Request):
+  """Zero-Trust Diagnostics & Health Endpoint.
+
+  Direct unauthenticated browser/CLI access to `/` or `/health` is blocked with
+  HTTP 403 Forbidden (remediating CWE-200 Information Exposure of internal GCP
+  project IDs, Service Account emails, and BigQuery table metadata).
+  """
+  if not verify_admin_request(request):
+    return JSONResponse(
+        status_code=403,
+        content={
+            "error": "Forbidden",
+            "message": (
+                "Direct unauthenticated access to Cloud Run endpoint is "
+                "prohibited. Authenticate via trusted GCP IAM Bearer token or "
+                "X-Admin-Signature."
+            ),
+        },
+    )
   return {
       "status": "ok",
-      "version": "2.5.0-production-verified",
+      "version": "2.6.0-zero-trust-hardened",
       "project": PROJECT_ID,
       "ces_app_id": get_effective_ces_app_id(),
       "public_base_url": get_effective_base_url(),
@@ -2710,21 +2789,21 @@ async def health():
           "partner_registry": PARTNER_REGISTRY_COLLECTION,
       },
       "bigquery_native_row_access_policies": {
-          "table": "<YOUR_BQ_DATASET_PROJECT_ID>.iowa_liquor_sales.sales",
+          "table": "your-bq-project-id.iowa_liquor_sales.sales",
           "policies": [
               {
                   "policy_id": "rls_partner_polk_store_2633",
-                  "grantee": "serviceAccount:sa-partner-polk@<YOUR_GCP_PROJECT_ID>.iam.gserviceaccount.com",
+                  "grantee": "serviceAccount:sa-partner-polk@your-gcp-project-id.iam.gserviceaccount.com",
                   "filter_predicate": "LOWER(county) = 'polk' AND store_number = '2633'",
               },
               {
                   "policy_id": "rls_partner_east_store_3773",
-                  "grantee": "serviceAccount:sa-partner-east@<YOUR_GCP_PROJECT_ID>.iam.gserviceaccount.com",
+                  "grantee": "serviceAccount:sa-partner-east@your-gcp-project-id.iam.gserviceaccount.com",
                   "filter_predicate": "LOWER(county) = 'linn' AND store_number = '3773'",
               },
               {
                   "policy_id": "rls_internal_all_access",
-                  "grantee": "serviceAccount:<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com, user:<YOUR_CORPORATE_EMAIL>",
+                  "grantee": "serviceAccount:123456789012-compute@developer.gserviceaccount.com",
                   "filter_predicate": "TRUE",
               },
           ],
@@ -2734,16 +2813,16 @@ async def health():
           "Mode A = Cloud KMS Asymmetric JWT -> Workforce Pool sts.googleapis.com/v1/token; "
           "Mode B = iamcredentials.googleapis.com Partner SA Impersonation)"
       ),
-      "ces_mcp_header_contract": "customHeaders: {'x-line-user-id': '$context.variables.line_user_id'} (ZERO x-token parameter)",
+      "ces_mcp_header_contract": "customHeaders: {'x-line-user-id': '$context.variables.line_user_id', 'x-line-user-exp': '$context.variables.line_user_exp', 'x-line-user-sig': '$context.variables.line_user_sig'} (ZERO x-token parameter)",
       "bqca_auth_channel": "HTTP Authorization: Bearer <sts_or_sa_token> header (ChatAction.kt verified; ChatRequest.credentials is Looker/SQL only)",
       "login_richmenu_id": LOGIN_RICHMENU_ID,
       "unlocked_richmenu_id": UNLOCKED_RICHMENU_ID,
       "bqca_agent": BQCA_AGENT_RESOURCE,
       "verified_production_topologies": {
           "topology_1_ces_active": (
-              "CES (ces.googleapis.com) McpToolset [service_account_auth_config + custom_headers x-line-user-id] "
+              "CES (ces.googleapis.com) McpToolset [service_agent_id_token_auth_config + custom_headers x-line-user-id/exp/sig] "
               "-> Regional ALB LbTrafficExtension (/ext-proc/oauth-broker) OR Cloud Run FastMCP Zero-Trust PEP "
-              "[1. Model Armor sanitizeUserPrompt -> 2. Firestore ACTIVE check -> 3. KMS WIF STS / Partner SA Token in RAM] "
+              "[1. Caller Auth Verification -> 2. Model Armor sanitizeUserPrompt -> 3. Firestore ACTIVE check -> 4. KMS WIF STS / Partner SA Token in RAM] "
               "-> BQCA :chat [Authorization: Bearer] -> BigQuery ROW ACCESS POLICY [SESSION_USER()]"
           ),
           "topology_2_adk_agent_gateway": (
