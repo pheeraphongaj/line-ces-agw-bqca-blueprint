@@ -21,13 +21,13 @@ from google.cloud import storage
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("iowa-line-bqca-adapter")
 
-PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "your-agent-host-project-id")
+PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "<YOUR_GCP_PROJECT_ID>")
 CES_LOCATION = os.environ.get("CES_LOCATION", "us")
 CES_APP_ID = os.environ.get("CES_APP_ID", "")
 
 BQCA_LOCATION = os.environ.get("BQCA_LOCATION", "us")
 BQCA_AGENT_ID = os.environ.get(
-    "BQCA_AGENT_ID", "your-bqca-data-agent-id"
+    "BQCA_AGENT_ID", "agent_4d95fc42-7b1d-428d-8156-32e8c8632161"
 )
 # Trap #1: Regional Endpoint is required for locations/us BQCA DataAgents
 BQCA_CHAT_URL = (
@@ -45,23 +45,25 @@ FIRESTORE_BASE_URL = (
 PARTNER_ACCOUNTS_COLLECTION = "line_partner_accounts"
 PARTNER_REGISTRY_COLLECTION = "line_partner_registry"
 
-CHART_BUCKET = os.environ.get("CHART_BUCKET", "your-agent-host-project-id-line-charts")
+CHART_BUCKET = os.environ.get("CHART_BUCKET", "<YOUR_GCP_PROJECT_ID>-line-charts")
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "")
 IAP_AUTH_BASE_URL = os.environ.get(
     "IAP_AUTH_BASE_URL",
-    "https://line-iap-auth-<REGION_HASH>.a.run.app",
+    "https://iowa-line-iap-auth-<YOUR_PROJECT_NUMBER>.us-central1.run.app",
 ).rstrip("/")
 UNLOCKED_RICHMENU_ID = os.environ.get(
-    "UNLOCKED_RICHMENU_ID", "richmenu-your-6card-analytics-menu-id"
+    "UNLOCKED_RICHMENU_ID", "richmenu-1150166c906fab07940f62a5df4f4f9e"
 )
 LOGIN_RICHMENU_ID = os.environ.get(
-    "LOGIN_RICHMENU_ID", "richmenu-your-1card-login-menu-id"
+    "LOGIN_RICHMENU_ID", "richmenu-eabdd88ffc5bf4e2ecf4707ed3fad403"
 )
 
 LINE_CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "").strip()
 LINE_CHANNEL_ACCESS_TOKEN = os.environ.get(
     "LINE_CHANNEL_ACCESS_TOKEN", ""
 ).strip()
+LINE_OA_BASIC_ID = os.environ.get("LINE_OA_BASIC_ID", "@your-line-oa").strip()
+_CACHED_LINE_BASIC_ID: Optional[str] = None
 CUTOFF_SECONDS = float(os.environ.get("LINE_REPLY_CUTOFF_SECONDS", "22.0"))
 
 # Model Armor & Workforce Identity Federation (Cloud KMS Asymmetric OIDC Signer)
@@ -95,7 +97,7 @@ MOCK_PARTNER_ACCOUNTS: Dict[str, Dict[str, Any]] = {
         "partner_id": "PARTNER-POLK-001",
         "partner_name": "Hy-Vee #3 Des Moines (Store #2633)",
         "partner_tier": "GOLD",
-        "service_account": "sa-partner-polk@your-agent-host-project-id.iam.gserviceaccount.com",
+        "service_account": "sa-partner-polk@<YOUR_GCP_PROJECT_ID>.iam.gserviceaccount.com",
         "rls_policy_name": "rls_partner_polk_store_2633",
         "rls_scope": "Polk • Store #2633 (HY-VEE #3 ONLY)",
         "rls_sql_filter": "LOWER(county) = 'polk' AND store_number = '2633'",
@@ -109,7 +111,7 @@ MOCK_PARTNER_ACCOUNTS: Dict[str, Dict[str, Any]] = {
         "partner_id": "PARTNER-EAST-002",
         "partner_name": "Benz Distributing Cedar Rapids (Store #3773)",
         "partner_tier": "SILVER",
-        "service_account": "sa-partner-east@your-agent-host-project-id.iam.gserviceaccount.com",
+        "service_account": "sa-partner-east@<YOUR_GCP_PROJECT_ID>.iam.gserviceaccount.com",
         "rls_policy_name": "rls_partner_east_store_3773",
         "rls_scope": "Linn • Store #3773 (BENZ DIST ONLY)",
         "rls_sql_filter": "LOWER(county) = 'linn' AND store_number = '3773'",
@@ -123,7 +125,7 @@ MOCK_PARTNER_ACCOUNTS: Dict[str, Dict[str, Any]] = {
         "partner_id": "PARTNER-VIP-003",
         "partner_name": "Heartland Retail Corp. (Statewide)",
         "partner_tier": "PLATINUM",
-        "service_account": "123456789012-compute@developer.gserviceaccount.com",
+        "service_account": "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com",
         "rls_policy_name": "rls_internal_all_access",
         "rls_scope": "ALL_IOWA",
         "rls_sql_filter": "TRUE",
@@ -364,7 +366,7 @@ def get_stateless_sts_token(
   - Mode A (`WORKFORCE_POOL_AUDIENCE` configured — `1,000–1,000,000+` Partners, `0` Partner SAs):
     Signs a 5-min RS256 JWT via Cloud KMS (`asymmetricSign`) and exchanges it with
     `POST https://sts.googleapis.com/v1/token` against a GCP Workforce Identity Pool (`workforcePools`).
-  - Mode B (`target_sa` configured — `<50` Partners / Store Cohort SAs, Active on `hong-ai-demo`):
+  - Mode B (`target_sa` configured — `<50` Partners / Store Cohort SAs, Active on `<YOUR_GCP_PROJECT_ID>`):
     Mints a short-lived `ya29...` token in RAM via `iamcredentials.googleapis.com/...:generateAccessToken`.
   """
   cache_key = f"{principal_key}:{target_sa}:{WORKFORCE_POOL_AUDIENCE}"
@@ -396,11 +398,11 @@ def get_stateless_sts_token(
   # Mode B: IAM Service Account Impersonation (`iamcredentials.googleapis.com`)
   host_token = get_gcp_bearer_token()
   impersonated_token = host_token
-  effective_sa = target_sa or "123456789012-compute@developer.gserviceaccount.com"
+  effective_sa = target_sa or "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com"
 
   if (
       target_sa
-      and target_sa != "123456789012-compute@developer.gserviceaccount.com"
+      and target_sa != "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com"
   ):
     iam_url = (
         "https://iamcredentials.googleapis.com/v1/projects/-/"
@@ -556,7 +558,7 @@ def verify_state_signature(uid: str, exp: int, sig: str) -> bool:
 def build_signed_partner_portal_url(line_user_id: str, base_url: str = "") -> str:
   exp = int(time.time() + 3600)
   sig = build_state_signature(line_user_id, exp)
-  eff_base = get_effective_base_url(base_url) or "https://line-bqca-adapter-<REGION_HASH>.a.run.app"
+  eff_base = get_effective_base_url(base_url) or "https://iowa-line-bqca-adapter-<YOUR_PROJECT_NUMBER>.us-central1.run.app"
   return (
       f"{eff_base}/auth/portal?uid={line_user_id}&exp={exp}&sig={sig}"
       "&openExternalBrowser=1"
@@ -579,7 +581,7 @@ def get_user_auth_session(line_user_id: str) -> Optional[Dict[str, Any]]:
   Zero OAuth tokens are stored in Firestore or GCS. When the user is ACTIVE in
   Firestore, the Stateless Token Broker mints/fetches a short-lived `ya29...`
   access token in RAM only by impersonating the Partner's dedicated Service Account
-  (e.g., `sa-partner-polk@your-agent-host-project-id.iam.gserviceaccount.com`), which enforces
+  (e.g., `sa-partner-polk@<YOUR_GCP_PROJECT_ID>.iam.gserviceaccount.com`), which enforces
   BigQuery Native `ROW ACCESS POLICY` at the storage engine layer.
   """
   if not line_user_id:
@@ -609,7 +611,7 @@ def get_user_auth_session(line_user_id: str) -> Optional[Dict[str, Any]]:
 
   partner_id = enriched.get("partner_id", "PARTNER-DEFAULT")
   target_sa = enriched.get(
-      "service_account", "123456789012-compute@developer.gserviceaccount.com"
+      "service_account", "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com"
   )
   sts_info = get_stateless_sts_token(partner_id, target_sa=target_sa)
   enriched["oauth2_access_token"] = sts_info["access_token"]
@@ -635,6 +637,31 @@ async def set_user_richmenu(line_user_id: str, richmenu_id: str) -> bool:
         headers={"Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"},
     )
     return resp.status_code == 200
+
+
+async def resolve_line_oa_basic_id() -> str:
+  """Resolves the LINE Official Account basicId (e.g. @703tucge) dynamically from /v2/bot/info."""
+  global _CACHED_LINE_BASIC_ID
+  if _CACHED_LINE_BASIC_ID:
+    return _CACHED_LINE_BASIC_ID
+  if LINE_OA_BASIC_ID and LINE_OA_BASIC_ID != "@your-line-oa":
+    _CACHED_LINE_BASIC_ID = LINE_OA_BASIC_ID
+    return _CACHED_LINE_BASIC_ID
+  if LINE_CHANNEL_ACCESS_TOKEN:
+    try:
+      async with httpx.AsyncClient(timeout=5.0) as client:
+        resp = await client.get(
+            "https://api.line.me/v2/bot/info",
+            headers={"Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"},
+        )
+        if resp.status_code == 200:
+          basic_id = resp.json().get("basicId", "").strip()
+          if basic_id:
+            _CACHED_LINE_BASIC_ID = basic_id
+            return _CACHED_LINE_BASIC_ID
+    except Exception as e:
+      logger.warning("Failed to resolve LINE bot basicId: %s", e)
+  return LINE_OA_BASIC_ID or "@your-line-oa"
 
 
 def build_iap_login_flex_message(line_user_id: str, base_url: str = "") -> Dict[str, Any]:
@@ -851,7 +878,7 @@ async def execute_iowa_bqca_query(
       raw_answer = raw_answer + "\n" + "\n".join(row_lines)
 
   eff_policy = rls_policy_name or "rls_internal_all_access"
-  eff_sa = impersonated_sa or "123456789012-compute@developer.gserviceaccount.com"
+  eff_sa = impersonated_sa or "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com"
   if rls_scope and rls_scope not in ("ALL_IOWA", "NONE", ""):
     rls_note = (
         f"🛡️ [BigQuery Native RLS: {eff_policy}]\n"
@@ -1192,7 +1219,7 @@ async def partner_login_submit(request: Request):
       "partner_name": acct["partner_name"],
       "partner_tier": acct["partner_tier"],
       "service_account": acct.get(
-          "service_account", "123456789012-compute@developer.gserviceaccount.com"
+          "service_account", "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com"
       ),
       "rls_policy_name": acct.get("rls_policy_name", "rls_internal_all_access"),
       "rls_scope": acct["rls_scope"],
@@ -1206,6 +1233,9 @@ async def partner_login_submit(request: Request):
   firestore_set_doc(PARTNER_REGISTRY_COLLECTION, uid, registry_doc)
   linked = await set_user_richmenu(uid, UNLOCKED_RICHMENU_ID)
   await send_partner_auth_success_push(uid, registry_doc)
+  line_basic_id = await resolve_line_oa_basic_id()
+  line_chat_url = f"https://line.me/R/oaMessage/{line_basic_id}/"
+  line_profile_url = f"https://line.me/R/ti/p/{line_basic_id}"
 
   html = f"""<!DOCTYPE html>
 <html lang="th">
@@ -1245,6 +1275,12 @@ async def partner_login_submit(request: Request):
       background: #06C755; color: #FFFFFF; text-decoration: none;
       font-weight: 700; font-size: 15px; padding: 14px 20px; border-radius: 12px;
     }}
+    .btn-sub {{
+      display: block; width: 100%; box-sizing: border-box;
+      background: #334155; color: #E2E8F0; text-decoration: none;
+      font-weight: 600; font-size: 13px; padding: 10px 16px; border-radius: 10px;
+      margin-top: 10px;
+    }}
   </style>
 </head>
 <body>
@@ -1260,7 +1296,8 @@ async def partner_login_submit(request: Request):
       <div><strong>Impersonated SA:</strong> <code>{registry_doc["service_account"]}</code></div>
       <div><strong>6-Card Menu Linked:</strong> {linked}</div>
     </div>
-    <a class="btn" href="https://line.me/R/ti/p/@your-line-oa">กลับไปยังแชท LINE Sales AI ➔</a>
+    <a class="btn" href="{line_chat_url}">💬 เปิดห้องแชท LINE Sales AI ({line_basic_id}) ➔</a>
+    <a class="btn-sub" href="{line_profile_url}">กลับไปยังหน้าแชท / โปรไฟล์ ({line_basic_id})</a>
   </div>
 </body>
 </html>"""
@@ -1344,7 +1381,7 @@ def resolve_agw_injected_context(request: Request) -> Dict[str, str]:
         "rls_sql_filter": request.headers.get("x-agw-rls-filter", "TRUE"),
         "impersonated_sa": request.headers.get(
             "x-agw-impersonated-sa",
-            "123456789012-compute@developer.gserviceaccount.com",
+            "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com",
         ),
         "token_source": "alb_lb_traffic_extension_ext_proc_header_injection",
     }
@@ -1363,7 +1400,7 @@ def resolve_agw_injected_context(request: Request) -> Dict[str, str]:
           "rls_sql_filter": broker_sess.get("rls_sql_filter", "TRUE"),
           "impersonated_sa": broker_sess.get(
               "impersonated_sa",
-              "123456789012-compute@developer.gserviceaccount.com",
+              "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com",
           ),
           "token_source": "fastmcp_zero_trust_pep_stateless_sts_broker",
       }
@@ -1376,7 +1413,7 @@ def resolve_agw_injected_context(request: Request) -> Dict[str, str]:
       "rls_policy_name": "rls_internal_all_access",
       "rls_scope": "ALL_IOWA",
       "rls_sql_filter": "TRUE",
-      "impersonated_sa": "123456789012-compute@developer.gserviceaccount.com",
+      "impersonated_sa": "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com",
       "token_source": "unauthenticated_default",
   }
 
@@ -1864,7 +1901,7 @@ async def run_ces_session(
       "partner_id": partner_id,
       "rls_scope": rls_scope or "ALL_IOWA",
       "rls_policy_name": rls_policy_name or "rls_internal_all_access",
-      "impersonated_sa": impersonated_sa or "123456789012-compute@developer.gserviceaccount.com",
+      "impersonated_sa": impersonated_sa or "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com",
       "token_broker": "GE_AGENT_GATEWAY_EXT_PROC_STS",
   }
 
@@ -1923,7 +1960,7 @@ async def process_line_turn(
   rls_policy_name = auth_record.get("rls_policy_name", "rls_internal_all_access")
   rls_sql_filter = auth_record.get("rls_sql_filter", "TRUE")
   impersonated_sa = auth_record.get(
-      "service_account", "123456789012-compute@developer.gserviceaccount.com"
+      "service_account", "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com"
   )
   await start_line_loading(line_user_id, seconds=60)
 
@@ -2068,18 +2105,18 @@ async def test_turn(request: Request):
     }
 
   u_email = (
-      auth_record.get("user_email", "demo-bypass@your-agent-host-project-id")
+      auth_record.get("user_email", "demo-bypass@<YOUR_GCP_PROJECT_ID>")
       if auth_record
-      else "demo-bypass@your-agent-host-project-id"
+      else "demo-bypass@<YOUR_GCP_PROJECT_ID>"
   )
   p_id = auth_record.get("partner_id", "INTERNAL-BYPASS") if auth_record else "INTERNAL-BYPASS"
   r_scope = auth_record.get("rls_scope", "ALL_IOWA") if auth_record else "ALL_IOWA"
   r_pol = auth_record.get("rls_policy_name", "rls_internal_all_access") if auth_record else "rls_internal_all_access"
   r_flt = auth_record.get("rls_sql_filter", "TRUE") if auth_record else "TRUE"
   imp_sa = (
-      auth_record.get("service_account", "123456789012-compute@developer.gserviceaccount.com")
+      auth_record.get("service_account", "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com")
       if auth_record
-      else "123456789012-compute@developer.gserviceaccount.com"
+      else "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com"
   )
 
   ces_res = await run_ces_session(
@@ -2184,7 +2221,7 @@ async def agw_service_extension_oauth_broker(request: Request):
   rls_policy = auth_record.get("rls_policy_name", "rls_internal_all_access")
   rls_filter = auth_record.get("rls_sql_filter", "TRUE")
   impersonated_sa = auth_record.get(
-      "impersonated_sa", "123456789012-compute@developer.gserviceaccount.com"
+      "impersonated_sa", "<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com"
   )
   auth_mode = auth_record.get("auth_mode", "PARTNER_CIP_FIRESTORE")
   return {
@@ -2333,21 +2370,21 @@ async def health():
           "partner_registry": PARTNER_REGISTRY_COLLECTION,
       },
       "bigquery_native_row_access_policies": {
-          "table": "your-bigquery-data-project-id.iowa_liquor_sales.sales",
+          "table": "hong-demo-project.iowa_liquor_sales.sales",
           "policies": [
               {
                   "policy_id": "rls_partner_polk_store_2633",
-                  "grantee": "serviceAccount:sa-partner-polk@your-agent-host-project-id.iam.gserviceaccount.com",
+                  "grantee": "serviceAccount:sa-partner-polk@<YOUR_GCP_PROJECT_ID>.iam.gserviceaccount.com",
                   "filter_predicate": "LOWER(county) = 'polk' AND store_number = '2633'",
               },
               {
                   "policy_id": "rls_partner_east_store_3773",
-                  "grantee": "serviceAccount:sa-partner-east@your-agent-host-project-id.iam.gserviceaccount.com",
+                  "grantee": "serviceAccount:sa-partner-east@<YOUR_GCP_PROJECT_ID>.iam.gserviceaccount.com",
                   "filter_predicate": "LOWER(county) = 'linn' AND store_number = '3773'",
               },
               {
                   "policy_id": "rls_internal_all_access",
-                  "grantee": "serviceAccount:123456789012-compute@developer.gserviceaccount.com, user:analyst@corp.example.com",
+                  "grantee": "serviceAccount:<YOUR_PROJECT_NUMBER>-compute@developer.gserviceaccount.com, user:pheeraphong@google.com",
                   "filter_predicate": "TRUE",
               },
           ],
